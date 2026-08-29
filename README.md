@@ -3,7 +3,7 @@
 Detecting **"ghost beneficiaries"** in government welfare programs using an end-to-end
 data engineering pipeline, with a data science experimentation layer for fraud detection.
 
-> Final Data Science project — university submission (not affiliated with any external certification program).
+> Final Data Science project — Course Submission (Affiliated with IBM certification program).
 
 ---
 
@@ -23,7 +23,7 @@ suspicious entries — before the money is disbursed.
 
 ## Architecture
 
-![Pipeline Architecture](docs/pipeline_diagram.png)
+![Pipeline Architecture](docs/Pipeline_Diagram.png)
 
 The pipeline has three layers:
 - **Data Engineering (blue):** extraction, cleaning, database loading, orchestration
