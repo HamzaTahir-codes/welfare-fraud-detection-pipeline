@@ -321,10 +321,15 @@ def write_cleaned_tables(df, source_name, run_id):
         source_name (str): The name of the source (e.g., 'beneficiaries', 'national_id', 'disbursements').
         run_id (str): A unique identifier for this ETL run (used in the filename).
     """
-    output_path = "data/clean/" + source_name + "_" + run_id + ".csv"
-    df.to_csv(output_path, index=False)
-    logging.info(f"Cleaned {source_name} data written to {output_path}")
-    return output_path
+    output_paths = [
+            f"data/clean/{source_name}_{run_id}.csv",
+            f"data/clean/{source_name}.csv"
+        ]
+
+    for path in output_paths:
+        df.to_csv(path, index=False)
+    logging.info(f"Cleaned {source_name} data written to {output_paths[0]}")
+    return output_paths[0]
 
 # ============================================================
 # STEP 5: Orchestrator — respects Stage 2's extract summary
