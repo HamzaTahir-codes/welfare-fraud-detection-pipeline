@@ -67,20 +67,115 @@ government systems:
 
 ## Stage 2/3 — Extraction, Staging & Cleaning (ETL)
 
-**Status:** ⏳ Not started
+**Status:** Complete
 
-*(To be filled in once built: what extraction/staging looked like, what cleaning
-rules were applied, how fuzzy matching was configured, and what the cleaned
-output looked like.)*
+### What was built
+
+**Stage 2 (Extract):** Processes the three raw CSVs (beneficiaries, disbursements,
+national_id_records) from `data/raw/` into `data/staging/`. Implements a
+**hub-and-spoke failure model**: beneficiaries failing to extract halts the
+entire run (status `FAILED`); disbursements or national_id_records failing
+marks the run `PARTIAL` and lets the other source continue. `run_extract()`
+returns a structured result dict (status, sources loaded/skipped, run_id) for
+downstream stages to consume. Verified end-to-end on real data (~10,100
+beneficiaries, ~38,846 disbursements, ~10,000 national ID records).
+
+**Stage 3 (Transform):** Produces three **separately cleaned** DataFrames
+(not one merged table), written to `data/clean/`. Locked design decisions:
+- **Flag-not-drop policy** — uncleansable/implausible values are never deleted,
+  only flagged, preserving full auditability for a fraud-detection context.
+- Data quality flags (`dob_parse_failed`, `income_flag`, etc.) and fraud signal
+  flags (`shared_bank_account_flag`, `orphaned_beneficiary_flag`) kept in
+  **separate columns**, not conflated.
+- Dates standardized to ISO `YYYY-MM-DD`; categorical text fields standardized
+  to Title Case.
+- PKR domain caps applied: 100,000 (monthly income), 10,000 (disbursement
+  amount) — values outside range flagged, not dropped.
+- **Shared-account fraud signal:** >3 disbursements per bank account flagged.
+- **Orphaned disbursement signal:** disbursements referencing a `beneficiary_id`
+  absent from the beneficiary registry, flagged via anti-join.
+- **CNIC vs. `national_id_no` mismatches** (559 rows) treated as typo errors —
+  flagged, not auto-corrected, via a left-join comparison
+  (`beneficiary_national_id_joined`).
+- Each cleaning run writes **two copies** of every output file: a timestamped
+  archive copy (`{source}_cleaned_{run_id}.csv`) and a fixed-name copy
+  (`{source}_cleaned.csv`) that downstream stages (loader, and later Airflow)
+  read from — avoids fragile filename-guessing in automation.
+
+### Bugs found and resolved
+Invalid imports; inverted truthiness checks; numpy `int64` JSON serialization
+failures; path separator inconsistencies; inconsistent source naming across
+functions; always-true dict key checks; `pd.NA` silently degrading a column
+from nullable `Float64` back to `float64`; currency symbols/commas not stripped
+from `amount_pkr` before numeric conversion.
+
+### Output files produced
+- `data/clean/beneficiaries_cleaned_{run_id}.csv` + `beneficiaries_cleaned.csv`
+- `data/clean/national_id_cleaned_{run_id}.csv` + `national_id_cleaned.csv`
+- `data/clean/disbursements_cleaned_{run_id}.csv` + `disbursements_cleaned.csv`
+- `data/clean/beneficiary_national_id_joined_{run_id}.csv` (CNIC mismatch
+  reference join — debug/audit artifact, not used as a source of truth for
+  Stage 6 record linkage)
 
 ---
 
 ## Stage 4 — Database Schema & Loading
 
-**Status:** ⏳ Not started
+**Status:** Complete
 
-*(To be filled in: final schema design, relationships, any constraints added,
-and loading approach.)*
+### What was built
+PostgreSQL schema defined in `src/database/schema.sql` with 5 tables:
+`beneficiaries`, `national_id_records`, `disbursements`,
+`record_linkage_matches`, `fraud_signals` (the last two are empty output
+tables, populated once Stage 6 fraud detection runs).
+
+Loader implemented in `src/etl/loader_stage.py` using `psycopg2` +
+`execute_values` for batched inserts. Mirrors Stage 2's hub-and-spoke pattern:
+beneficiaries failing to load halts the run; national_id_records or
+disbursements failing marks the run `PARTIAL` and lets the other proceed.
+
+### Key design decisions
+- **No foreign key constraints** between `beneficiaries`, `disbursements`,
+  and `national_id_records`. Orphaned disbursements and CNIC mismatches are
+  fraud *signals* to detect, not integrity errors to prevent — an FK
+  constraint would make it structurally impossible to load the very fraud
+  patterns Stage 1 planted.
+- **Surrogate primary keys** (`row_id BIGSERIAL`) used for `beneficiaries` and
+  `disbursements` instead of their natural IDs. Both tables contain
+  legitimate full-duplicate rows (`is_duplicate_row` flag, 200 rows in
+  beneficiaries; ~574 duplicate `disbursement_id`s) that a natural-key
+  `PRIMARY KEY` would reject on insert — surrogate keys let every row load
+  while `beneficiary_id`/`disbursement_id` remain plain indexed columns for
+  grouping/analysis. `national_id_records` has no duplicates, so
+  `national_id_no` remains a true primary key.
+- **Data quality/fraud flags stored as `TEXT[]`** (native Postgres arrays),
+  not comma-separated strings — enables direct queries like
+  `'orphaned_beneficiary_flag' = ANY(data_quality_flags)`.
+- **Money columns as `NUMERIC(12,2)`**, not float types, to avoid rounding
+  errors in any later fraud-amount aggregation.
+- Credentials handled via `.env` + `python-dotenv`, loaded through
+  `src/database/config.py` and `src/database/connection.py`; never
+  hardcoded, `.env` excluded from git.
+
+### Bugs found and resolved
+Ambiguous-truth-value crash from calling `pd.isna()` on already-converted list
+values (data_quality_flags) — fixed by checking `isinstance(x, list)` before
+the NaN check; file-read calls initially outside their per-table `try` blocks,
+which broke hub/spoke failure isolation for missing spoke source files;
+`sys.path` project-root calculation going up only one directory instead of
+two, causing `ModuleNotFoundError: No module named 'src'` — resolved by
+running via `python -m src.etl.loader_stage` from the project root instead of
+invoking the script directly.
+
+### Verification
+Row counts confirmed to match source CSVs exactly (10,100 beneficiaries,
+38,846 disbursements). `data_quality_flags` confirmed to load as genuine
+Postgres arrays (e.g. `{income_flag,phone_missing}`), not stringified lists.
+
+### Output
+- `src/database/schema.sql`
+- `src/database/config.py`, `src/database/connection.py`
+- `src/etl/loader_stage.py`
 
 ---
 
