@@ -168,7 +168,7 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="data/raw/national_id_records.csv",
+        default="data/raw/national_id.csv",
         help="Output CSV path.",
     )
     args = parser.parse_args()

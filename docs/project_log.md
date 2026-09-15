@@ -177,6 +177,75 @@ Postgres arrays (e.g. `{income_flag,phone_missing}`), not stringified lists.
 - `src/database/config.py`, `src/database/connection.py`
 - `src/etl/loader_stage.py`
 
+## Stage 5 — Rule-Based Fraud Detection Baseline (2026-09-14)
+
+### What was built
+Implemented `src/fraud_detection/rule_based.py` — six rule-based fraud
+detectors (duplicate CNIC across identities, shared bank account,
+orphaned disbursement, CNIC mismatch, duplicate-cycle payment, payment
+to inactive/suspended beneficiaries), each reading from Postgres into
+pandas, applying vectorized rule logic, and bulk-writing results to
+`fraud_signals` via `execute_values`. Also built
+`src/fraud_detection/evaluate_rule_based.py`, which scores signals
+against the planted ground truth in `data/ground_truth_fraud_ids.csv`.
+
+### Bugs found and fixed during evaluation
+
+**1. `shared_bank_account` was flagging 99.5% of all disbursements.**
+Root cause: the original Stage 3 flag counted *total disbursement rows
+per account* (>3), which any legitimate beneficiary paid monthly across
+6 cycles naturally exceeds. Fixed by recomputing the signal in Stage 5
+as *distinct beneficiary_id count per account* (>1) — the actual
+fraud pattern from `plant_shared_account_fraud`. Signal count dropped
+from 38,664 to 5,874. Decision: keep the old Stage 3 column as legacy/
+unused rather than re-running Stage 3+4, since this is fraud-detection
+logic and belongs in Stage 5 conceptually.
+
+**2. `entity_id` used business identifiers instead of the surrogate key.**
+`inject_messiness.py` duplicates full rows (same `disbursement_id`/
+`beneficiary_id` on both copies), so business IDs aren't guaranteed
+unique per physical row — the same principle already established for
+`row_id` vs. natural keys in Stage 4. Fixed: `entity_id` in
+`fraud_signals` now always stores `row_id` (cast to text), not the
+business ID. **This supersedes the earlier locked decision** that
+`entity_id` should use business identifiers.
+
+**3. `duplicate_cycle_payment` was partly counting messiness artifacts,
+not fraud.** `inject_messiness.py`'s row-duplication (~1.5% of rows)
+creates exact-copy rows sharing the same `disbursement_id`. Fixed by
+collapsing rows to one event per distinct `disbursement_id` before
+checking for genuine same-cycle duplicates. Signal count dropped from
+6,164 to 5,590.
+
+### Validated results (against ground truth: 25 orphan, 910 shared_account)
+
+| Signal | Precision | Recall | F1 | Notes |
+|---|---|---|---|---|
+| `orphaned_disbursement` | 1.0000 | 1.0000 | 1.0000 | Exact match, 25/25 |
+| `shared_bank_account` | 0.8465 | 1.0000 | 0.9169 | All 165 "FPs" are hub-account owners not logged as victims in ground truth — effectively 100% precision once accounted for |
+
+### Key finding: `duplicate_cycle_payment` is not an independent signal
+Overlap analysis vs. `shared_bank_account`: 51.4% of duplicate-cycle
+signals coincide with shared-account signals, and the ~50% split is
+structurally expected — each victim's fraud pair produces one flagged
+row (hub account) and one unflagged row (their own account). Conclusion:
+`duplicate_cycle_payment` mostly re-detects the same shared-account
+fraud mechanism from a different angle, not a distinct fraud pattern.
+**Decision: do not treat these two signals as independent evidence when
+aggregating a combined risk score later** (Stage 6/dashboard) — double-
+counting one underlying case would overstate confidence.
+
+### Unverified rules (no planted ground truth to score against)
+`cnic_mismatch` (556 flagged), `payment_to_inactive_beneficiary` (1,824
+flagged), `duplicate_cnic_multiple_identities` (0 flagged) — plausible
+heuristics, but `generate_disbursements.py`/`generate_beneficiaries.py`
+don't plant corresponding ground truth. Report these as unverified
+heuristic signal counts, not precision/recall.
+
+### Status
+Rule-based baseline (Stage 5, part 1) complete and validated. Next:
+fuzzy record-linkage (RapidFuzz/recordlinkage).
+
 ---
 
 ## Stage 5 — Orchestration

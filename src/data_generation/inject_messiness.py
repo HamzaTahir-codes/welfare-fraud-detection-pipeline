@@ -35,7 +35,7 @@ import pandas as pd
 
 PROTECTED_COLUMNS = {
     "beneficiary_id", "cnic", "national_id_no",
-    "bank_account_number", "linked_beneficiary_id", "disbursement_id",
+    "bank_account_number", "linked_beneficiary_id", "disbursement_id", "original_beneficiary_id", "duplicate_beneficiary_id"
 }
 
 
@@ -246,11 +246,11 @@ def main():
     print(f"beneficiaries.csv: {before} -> {len(beneficiaries)} rows (messiness injected, saved to {b_path})")
 
     # National ID records
-    n_path = raw_dir / "national_id_records.csv"
+    n_path = raw_dir / "national_id.csv"
     national_ids = pd.read_csv(n_path)
     national_ids = mess_national_ids(national_ids, args.missing_rate)
     national_ids.to_csv(n_path, index=False)
-    print(f"national_id_records.csv: messiness injected, saved to {n_path}")
+    print(f"national_id.csv: messiness injected, saved to {n_path}")
 
     # Disbursements
     d_path = raw_dir / "disbursements.csv"
