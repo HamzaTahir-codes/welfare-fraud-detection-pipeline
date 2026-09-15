@@ -264,7 +264,7 @@ def run_extract():
     # ---------- SPOKES: disbursements & national_id ----------
     spokes = [
         ("disbursements", load_disbursements, "data/raw/disbursements.csv", EXPECTED_COLS_DISBURSEMENTS),
-        ("national_id", load_national_id, "data/raw/national_id_records.csv", EXPECTED_COLS_NATIONAL_ID)
+        ("national_id", load_national_id, "data/raw/national_id.csv", EXPECTED_COLS_NATIONAL_ID)
     ]
     
     skipped_sources = [] # Keep track of skipped sources due to errors, for transform to check
