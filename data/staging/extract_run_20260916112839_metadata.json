@@ -1,0 +1,34 @@
+{
+  "run_id": "20260916112839",
+  "status": "SUCCESS",
+  "skipped_sources": [],
+  "sources": [
+    {
+      "source_name": "beneficiaries",
+      "file_name": "beneficiaries.csv",
+      "extraction_timestamp": "2026-09-16T11:28:39.744258",
+      "status": "LOADED",
+      "total_rows": 5090,
+      "empty_rows": 0,
+      "column_count": 18
+    },
+    {
+      "source_name": "disbursements",
+      "file_name": "disbursements.csv",
+      "extraction_timestamp": "2026-09-16T11:28:39.790896",
+      "status": "LOADED",
+      "total_rows": 18844,
+      "empty_rows": 0,
+      "column_count": 9
+    },
+    {
+      "source_name": "national_id",
+      "file_name": "national_id.csv",
+      "extraction_timestamp": "2026-09-16T11:28:39.836084",
+      "status": "LOADED",
+      "total_rows": 6040,
+      "empty_rows": 0,
+      "column_count": 8
+    }
+  ]
+}

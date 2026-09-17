@@ -220,6 +220,10 @@ def plant_duplicate_identities(beneficiaries, national_id, disbursements, n_pair
                 template = disbursements.sample(n=1, random_state=random.randint(0, 10_000)).iloc[0].copy()
             template[DISBURSEMENT_ID_COL] = disb_id
             template[BENEFICIARY_ID_COL] = dup_id
+            template[BANK_ACCOUNT_COL] = dup_row[BANK_ACCOUNT_COL]  # use the duplicate's OWN fabricated
+            # account, not the original's -- otherwise every planted duplicate-identity pair
+            # accidentally also becomes an unlogged shared_bank_account case, inflating the
+            # shared_bank_account rule's false-positive count against ground truth.
             duplicate_disbursement_rows.append(template)
 
         ground_truth_rows.append({
