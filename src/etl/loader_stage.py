@@ -58,6 +58,44 @@ def prepare_records(df, columns):
     ]
     return records
     
+
+# Tables truncated at the start of every loader_stage() run, so re-running
+# the loader after re-generating upstream data is idempotent (safe to run
+# repeatedly) instead of appending duplicate rows on top of a prior load.
+#
+# fraud_signals and record_linkage_matches are included here even though
+# this module doesn't write to them directly: both tables key off `row_id`,
+# the database's own auto-generated identifier (per Stage 5's documented
+# design -- business IDs like beneficiary_id aren't reliably unique once
+# duplicate rows exist). Truncating beneficiaries/disbursements assigns
+# fresh row_ids on reload, which would silently orphan any fraud_signals
+# or record_linkage_matches rows still pointing at the old row_ids. Clearing
+# them here means Stage 5 (rule_based.py) and Stage 6 (fuzzy_record.py)
+# simply need to be re-run after a reload, rather than leaving stale,
+# meaningless rows sitting in the database.
+TABLES_TO_RESET = [
+    "beneficiaries",
+    "national_id_records",
+    "disbursements",
+    "fraud_signals",
+    "record_linkage_matches",
+]
+
+
+def truncate_all_tables(conn):
+    """
+    Wipes all rows (and resets row_id sequences) for every table this
+    pipeline manages, ahead of a fresh load. Committed on its own, right
+    away -- so that if a later table's load fails and triggers a rollback,
+    that rollback can't undo the truncate along with it.
+    """
+    table_list = ", ".join(TABLES_TO_RESET)
+    cursor = conn.cursor()
+    cursor.execute(f"TRUNCATE TABLE {table_list} RESTART IDENTITY;")
+    conn.commit()
+    cursor.close()
+
+
 def load_dataframe(df, table_name, columns, conn):
     """_summary_
 
@@ -103,6 +141,19 @@ def loader_stage():
     conn = get_connection()
     
     try:
+        # Reset every managed table before loading, so this function can be
+        # re-run safely (e.g. after re-generating raw data upstream) without
+        # dropping/recreating the database or duplicating rows. See
+        # TABLES_TO_RESET / truncate_all_tables() above for why fraud_signals
+        # and record_linkage_matches are wiped here too.
+        try:
+            truncate_all_tables(conn)
+        except Exception as e:
+            result['status'] = 'FAILED'
+            result["errors"]["truncate"] = str(e)
+            conn.rollback()
+            return result
+
         # Hub table -- beneficiaries --
         beneficiaries_df = pd.read_csv("data/clean/beneficiaries_cleaned.csv")
         

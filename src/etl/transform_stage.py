@@ -4,9 +4,9 @@ transform_stage.py
 This stage is responsible for transforming the data into a format suitable for analysis and modeling. 
 It includes data cleaning, feature engineering, and any other necessary transformations.
 It also includes the logic for handling missing values, encoding categorical variables, and scaling numerical features.
+
+python src/etl/transform_stage.py
 '''
-
-
 
 import pandas as pd
 import datetime as dt
