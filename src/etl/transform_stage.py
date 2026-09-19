@@ -95,7 +95,9 @@ def strip_currency_symbols(series):
         pd.Series: A new Series with currency symbols removed.
     """
     # remove "Rs.", commas, and any stray whitespace, leaving only digit/./- characters
-    cleaned = series.astype(str).str.replace(r"[^\d\.\-]", "", regex=True)  # keep digits, dot, minus
+    cleaned = (series.astype(str)
+           .str.replace("Rs.", "", regex=False)
+           .str.replace(r"[^\d\.\-]", "", regex=True))
     return cleaned
 
 def clean_numeric_with_cap(series, cap, allow_negative=False):

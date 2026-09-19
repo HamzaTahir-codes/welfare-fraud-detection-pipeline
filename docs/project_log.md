@@ -6,6 +6,33 @@ final report at the end.
 
 ---
 
+## Status at a glance (updated 2026-09-19)
+
+| Stage | What | Status |
+|---|---|---|
+| 1 | Simulated source systems + planted fraud patterns | Complete (extended in Stages 6 and 7) |
+| 2/3 | Extract, staging, cleaning | Complete |
+| 4 | PostgreSQL schema and loader | Complete (loader made idempotent) |
+| 5 | Rule-based detection | Complete, validated on 2 of 6 rules |
+| 6 | Fuzzy record linkage (duplicate identities) | Complete, validated |
+| 7 | Isolation Forest (multivariate anomalies) | Complete, validated with limitations |
+| 8 | Comparative evaluation of the three methods | Not started |
+| 9 | Orchestration (Airflow or fallback) | Not started |
+| 10 | Dashboard | Not started |
+
+**Numbering note:** the original plan labelled orchestration, experiments and the dashboard as
+Stages 5-7. Rule-based detection, fuzzy linkage and Isolation Forest are now Stages 5-7, so those
+three items moved to Stages 8-10.
+
+**Dataset versions:** the Stage 1-4 entries below were written against the first dataset
+(~10,100 beneficiaries, ~38,846 disbursements). For the Stage 6-7 work the data was regenerated
+smaller, and the current dataset is: 5,090 beneficiary rows, 18,844 disbursement rows, 6,040
+national ID rows, with a ground-truth answer key of 390 entries (25 `orphan_disbursement`,
+300 `shared_account`, 40 `duplicate_identity`, 25 `multivariate_anomaly`). Every number
+below is labelled with the dataset it came from.
+
+---
+
 ## Stage 1 — Simulated Source Systems (Data Generation)
 
 **Status:** Complete
@@ -63,6 +90,12 @@ government systems:
 - `data/raw/disbursements.csv`
 - `data/ground_truth_fraud_ids.csv`
 
+### Later extensions (planted patterns added for Stages 6 and 7)
+- **`generate_duplicate_identities.py`** plants `duplicate_identity` ground truth (see Stage 6).
+- **`generate_anomalous_profiles.py`** plants `multivariate_anomaly` ground truth (see Stage 7).
+- Run order: the three base generators -> `generate_duplicate_identities.py` ->
+  `generate_anomalous_profiles.py` -> `inject_messiness.py`.
+
 ---
 
 ## Stage 2/3 — Extraction, Staging & Cleaning (ETL)
@@ -116,6 +149,13 @@ from `amount_pkr` before numeric conversion.
 - `data/clean/beneficiary_national_id_joined_{run_id}.csv` (CNIC mismatch
   reference join — debug/audit artifact, not used as a source of truth for
   Stage 6 record linkage)
+
+### Later bug found during Stage 7: "Rs." amounts parsed as tiny numbers
+`strip_currency_symbols` removed the letters of "Rs." but left the dot, so `"Rs. 10,000"` became
+`.10000` and was parsed as 0.1 (likewise 0.5, 0.6, 0.75, 0.8). About 8% of `amount_pkr_clean`
+values (1,483 of 18,536 rows in the cleaned file at the time) were wrong. It was not caught earlier
+because none of the Stage 5/6 rules use payment amounts. Fixed in `strip_currency_symbols`. Confirmed after the ETL re-run: the Stage 7 script, which raises a warning for any amount
+under 1,000, printed no warning.
 
 ---
 
@@ -176,6 +216,14 @@ Postgres arrays (e.g. `{income_flag,phone_missing}`), not stringified lists.
 - `src/database/schema.sql`
 - `src/database/config.py`, `src/database/connection.py`
 - `src/etl/loader_stage.py`
+
+### Later update: loader is idempotent
+Adding new planted patterns meant the raw data had to be regenerated and reloaded. Dropping and
+recreating the database each time was rejected. Instead `loader_stage()` now truncates
+`beneficiaries`, `national_id_records`, `disbursements`, `fraud_signals` and `record_linkage_matches`
+(`RESTART IDENTITY`) at the start of every run. `fraud_signals` and `record_linkage_matches` are
+included because they key off `row_id`, which changes on any reload. **Stages 5, 6 and 7 must be re-run after
+every loader run.**
 
 ## Stage 5 — Rule-Based Fraud Detection Baseline (2026-09-14)
 
@@ -242,33 +290,184 @@ heuristics, but `generate_disbursements.py`/`generate_beneficiaries.py`
 don't plant corresponding ground truth. Report these as unverified
 heuristic signal counts, not precision/recall.
 
+### Re-run on the current dataset (after Stage 6-7 data regeneration)
+Signal counts: `shared_bank_account` 1,992; `duplicate_cycle_payment` 2,009;
+`payment_to_inactive_beneficiary` 596; `cnic_mismatch` 326; `orphaned_disbursement` 25;
+`duplicate_cnic_multiple_identities` 0.
+
+| Signal | TP / FP / FN | Precision | Recall | F1 | Notes |
+|---|---|---|---|---|---|
+| `orphaned_disbursement` | 25 / 0 / 0 | 1.0000 | 1.0000 | 1.0000 | Exact match |
+| `shared_bank_account` (beneficiary level) | 300 / 50 / 0 | 0.8571 | 1.0000 | 0.9231 | All 50 FPs are hub-account owners not logged as victims in the answer key |
+
+`shared_bank_account` vs `duplicate_cycle_payment`: 1,021 overlapping row_ids, 50.8% of the
+duplicate-cycle signals, Jaccard 0.3426. This is consistent with the earlier finding that they are not
+independent evidence.
+
 ### Status
-Rule-based baseline (Stage 5, part 1) complete and validated. Next:
-fuzzy record-linkage (RapidFuzz/recordlinkage).
+Rule-based baseline complete and validated (2 of 6 rules have ground truth). Next: fuzzy
+record linkage.
 
 ---
 
-## Stage 5 — Orchestration
+## Stage 6 — Fuzzy Record Linkage: Duplicate-Identity Ghost Beneficiaries (2026-09-15)
 
-**Status:** ⏳ Not started
+**Status:** Complete, validated
 
-*(To be filled in: Airflow DAG design, or fallback approach if Airflow setup was
-skipped, and why.)*
+### What was built
+- **`generate_duplicate_identities.py`** (Stage 1 extension): plants 40 `duplicate_identity` pairs. Each
+  duplicate is the same person registered again under a new `beneficiary_id`, with a typo in the name,
+  a reworded address, the same date of birth, a fabricated CNIC and bank account, and its own disbursement
+  history. Logged to `ground_truth_fraud_ids.csv` (`original_beneficiary_id`, `duplicate_beneficiary_id`, one `run_id`
+  per execution).
+- **`src/fraud_detection/fuzzy_record.py`**: self-linkage of the `beneficiaries` table, writing pairs to
+  `record_linkage_matches`.
+
+### Key design decisions
+- **Scope:** beneficiaries against beneficiaries, not beneficiaries against `national_id_records`, because the
+  latter would mostly re-detect the exact-match `cnic_mismatch` signal.
+- **Blocking on exact `date_of_birth_clean`:** planted duplicates keep the DOB unchanged, so no true pair is
+  blocked out, while comparisons drop from O(n^2) to same-birthday groups (547 candidate pairs on the current dataset).
+- **Scoring:** RapidFuzz `token_sort_ratio` on `full_name` (weight 0.6) and `address_line` (0.4), after stripping
+  domain stopwords (honorifics such as "Muhammad", "Bibi", "Khan"; address boilerplate such as "House", "Street", "Block").
+  Without stopword stripping, true pairs and unrelated same-DOB pairs overlapped heavily.
+- **Threshold tuned by sweep** over 0.50-0.99, maximising F1 against the 40 known pairs, the same validation
+  rigour as Stage 5.
+- **`record_linkage_matches.national_id_no` renamed to `matched_record_id`** (`ALTER TABLE`), since the table now holds
+  beneficiary-to-beneficiary matches; `match_method` = `'fuzzy_duplicate_identity'` disambiguates.
+- Exact full-row duplicate artifacts (`is_duplicate_row`) are excluded from the comparison only (not deleted from the database).
+
+### Bugs found and fixed
+1. **Self-matches flooding the results.** Calling `recordlinkage.Index().index(df, df)` treats the inputs as two
+   datasets, so rows matched to themselves (score 1.0). Fixed by using the single-argument deduplication form `index(df)`.
+2. **Duplicate identities silently inheriting the original's bank account.** In the generator, the duplicate's
+   disbursement rows were copied from the original's rows without overwriting `bank_account_number`, so every
+   duplicate pair was also an unlogged `shared_bank_account` case. This inflated Stage 5's false positives
+   (precision fell to 0.6369, with 171 FPs versus 61 explained hub owners). Fixed in the generator, with
+   `patch_duplicate_identity_accounts.py` correcting the already-generated raw file, followed by a full re-run of Stages 2-6.
+
+### Results (40 planted pairs)
+| Dataset | Best threshold | Precision | Recall | F1 | Lowest true-pair score | Highest non-match score | Margin |
+|---|---|---|---|---|---|---|---|
+| First run | 0.57 | 1.0 | 1.0 | 1.0 | 0.585 | 0.569 | 0.016 |
+| Current dataset | 0.55 | 1.0 | 1.0 | 1.0 | 0.576 | 0.540 | 0.036 |
+
+On the current dataset: 40/40 true pairs found among candidates; true-pair scores min 0.576, median 0.961,
+max 0.993; non-match scores median 0.323, 90th percentile 0.406, max 0.540; 44 pairs stored (score >= 0.50), 40 flagged.
+
+### Limitations
+Perfect scores validate detection of the specific planted perturbation (one character-level typo plus an abbreviation
+swap), not generalisation to arbitrary real-world name variation. The margin between true pairs and the best
+non-match is narrow.
 
 ---
 
-## Stage 6 — Fraud Detection Experiments & Evaluation
+## Stage 7 — Isolation Forest: Multivariate Behavioural Anomalies (2026-09-19)
 
-**Status:** ⏳ Not started
+**Status:** Complete, validated with limitations
 
-*(To be filled in: results of rule-based, fuzzy-linkage, and anomaly detection
-methods, with precision/recall/false-positive comparison against ground truth.)*
+### Goal
+Detect genuinely registered beneficiaries whose payment behaviour is unusual across several features at once,
+with no rule and no ground truth given to the model. Deliberately different from Stages 5-6, which target fake or
+duplicated identities.
+
+### What was built
+- **`generate_anomalous_profiles.py`** (Stage 1 extension): plants 25 `multivariate_anomaly` profiles. It only edits
+  `disbursements.csv`; identities are untouched. Candidates are Active beneficiaries with monthly income <= 8,000 who are not in any
+  other planted pattern. Each gets: missing normal-window cycles filled, one extra payment in a cycle outside the
+  simulated window (so exactly 7 payments, while legitimate beneficiaries can have at most 6), and up to 2 existing payments raised to
+  the top of the normal amount pool (8,000 / 10,000). Answer key rows: `fraud_type='multivariate_anomaly'`, `beneficiary_id`.
+- **`src/fraud_detection/isolation_forest.py`**: unsupervised detector writing to `fraud_signals`
+  (`method='isolation_forest'`, `signal_type='multivariate_anomaly'`, score = anomaly score in (0,1), higher = more unusual).
+- **`src/fraud_detection/evaluate_isolation_forest.py`**: scores the stored run against the answer key.
+
+### Design decisions
+- **Level of analysis:** one row per `beneficiary_id` (lowest `row_id` kept). `fraud_signals.entity_id` = that
+  beneficiary's `row_id`, the same convention as Stages 5-6.
+- **Features:** payment count, mean amount, total received, income (median-imputed if missing), amount-to-income
+  (income floored at 1,000 to avoid dividing by zero).
+- **Duplicate disbursement rows collapsed first** (same `disbursement_id`, from `inject_messiness.py`), otherwise a legitimate
+  beneficiary with 6 payments plus one artifact copy looks like 7 payments.
+- **Beneficiaries with no payments are not scored** (1,862 of 5,040); they have no payment behaviour to model.
+- **Ground truth is used only in the evaluation script**, never by the detector.
+- **Contamination 0.05** as the headline setting, 300 trees, seed 42. Contamination only moves the flagging cut-off, so the
+  evaluation sweeps it without refitting. The default was not tuned against the answer key.
+- **Layered mode (`--layered`)**: excludes beneficiaries already flagged by the verified Stage 5 `shared_bank_account` rule or
+  Stage 6 fuzzy linkage (411 of them) from the model's training and scoring population for that run. Nothing is deleted from
+  the database. Uses earlier detectors' output only.
+
+### Evaluation design
+Isolation Forest is unsupervised and finds "unusual", not one specific planted pattern, and other planted fraud is also unusual.
+The evaluation therefore reports: precision/recall/F1 against `multivariate_anomaly`; a breakdown of what the flagged set
+contains (planted anomaly / shared-account victim / duplicate identity / unlabeled); a contamination sweep; ROC-AUC and average
+precision; and the population not already covered by Stages 5-6. Unlabeled flags are either novel findings or legitimate rare
+behaviour and cannot be scored as either.
+
+### Run 1: single population (3,178 scored beneficiaries, 159 flagged at 5%)
+- Against the answer key: TP=3, FP=156, FN=22 (precision 0.0189, recall 0.12, F1 0.0326).
+- Flagged set: 3 planted anomalies, 111 shared-account victims, 11 duplicate-identity beneficiaries, 34 unlabeled.
+- Recall by flagging depth: 3/25 at 5%, 9/25 at 8%, 13/25 at 10%, 20/25 at 15%.
+- Ranking quality: ROC-AUC 0.9003 (whole population), 0.9519 (planted versus ordinary only); average precision 0.1165 there,
+  against 0.0079 for random guessing. As a sanity check, refitting with 10 seeds on the exported scores (using "exactly 7
+  payments" as a stand-in label) gave ROC-AUC 0.941 +/- 0.007.
+- Independent discovery: without any rules, 37% of shared-account victims (111/300) and 17.5% of scoreable
+  duplicate-identity beneficiaries (11/63) were flagged.
+- **Diagnosis:** shared-account victims are paid 9-12 times (their own plus hub payments), so they are more extreme than the planted
+  7-payment profiles and use up the flagging budget. They also stretch the payment-count range the forest splits over, which
+  makes a step from 6 to 7 payments harder to isolate.
+
+### Run 2: layered (2,767 scored beneficiaries, 139 flagged at 5%)
+- Against the answer key: TP=21, FP=118, FN=4 (precision 0.1511, recall 0.84, F1 0.2561).
+- Recall by flagging depth: 13/25 at 3%, 21/25 at 5%, 23/25 at 8%, 25/25 at 10% (277 flagged, precision 0.09).
+- ROC-AUC 0.9719, average precision 0.1847 (random guessing 0.0090).
+- Top of the ranking: 1 planted anomaly in the top 10, 3 in the top 25, 6 in the top 50, 16 in the top 100. The planted profiles sit in
+  the top ~5% band, not at the very top.
+
+| | Run 1 (single population) | Run 2 (layered) |
+|---|---|---|
+| Planted found at 5% flagged | 3/25 (12%) | 21/25 (84%) |
+| Planted found at 10% flagged | 13/25 (52%) | 25/25 (100%) |
+| Precision at 5% | 0.019 | 0.151 |
+| ROC-AUC (planted vs ordinary) | 0.952 | 0.972 |
+| Average precision | 0.117 | 0.185 |
+
+### Reference baseline (not a Stage 7 detector)
+A single rule, `n_payments > 6`, flags exactly the 25 planted profiles: precision 1.0, recall 1.0. The planted pattern has a
+deterministic single-feature separator. Isolation Forest is never told that feature or ceiling; the baseline shows what an analyst who already
+knew where to look would achieve. Both are reported.
+
+### Limitations
+- The planted anomaly is separable by one threshold, so this experiment does not show Isolation Forest beating a rule.
+- Precision stays low: 118 of 139 flagged at 5% (layered) are unlabeled.
+- The layered change was chosen after seeing Run 1's flagged-set breakdown, a small evaluation feedback loop like Stage 6's threshold
+  tuning. It was one structural change, with no parameter sweep.
+- `inject_messiness.py`'s missing-value and outlier steps are not protected by `protected_ids` (only row duplication is), so a planted row could
+  in principle be nulled during cleaning. Accepted, as in Stage 6.
+- High scores on planted data do not prove real-world generalisation.
 
 ---
 
-## Stage 7 — Dashboard
+## Stage 8 — Comparative Evaluation of the Three Methods
 
-**Status:** ⏳ Not started
+**Status:** Not started
+
+*(To be filled in: a head-to-head table of rule-based, fuzzy linkage and Isolation Forest against the same answer key;
+whether and how to combine signals into a risk score, noting that `shared_bank_account` and `duplicate_cycle_payment` are not
+independent evidence.)*
+
+---
+
+## Stage 9 — Orchestration
+
+**Status:** Not started
+
+*(To be filled in: Airflow DAG design, or fallback approach if Airflow setup was skipped, and why.)*
+
+---
+
+## Stage 10 — Dashboard
+
+**Status:** Not started
 
 *(To be filled in: dashboard pages built and key design choices.)*
 
@@ -277,3 +476,6 @@ methods, with precision/recall/false-positive comparison against ground truth.)*
 ## Open Questions / Follow-ups
 - [ ] Confirm with instructor: full Airflow deployment vs. simplified scheduler acceptable?
 - [ ] Confirm whether a secondary real public dataset should be blended in for validation.
+- [ ] Decide which Isolation Forest configuration is the headline in the final report (single population or layered) and keep the other as the before/after.
+- [ ] `is_duplicate_row` uses `duplicated(keep=False)`, so both copies of a messiness-duplicated beneficiary are flagged, and the fuzzy-linkage stage and the duplicate-CNIC rule then exclude both. Verify against the database and decide whether to keep one copy per `beneficiary_id`.
+- [ ] Optionally protect planted rows from `inject_messiness.py`'s missing-value/outlier steps (known gap shared by Stages 6-7).
