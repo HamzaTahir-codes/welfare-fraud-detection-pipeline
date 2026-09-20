@@ -1,0 +1,17 @@
+detector,family,level,has_ground_truth,target,n_flagged,any_fraud_precision,overall_core_recall,tp_core,core_size,precision,recall,f1,precision_strict
+rule:orphaned_disbursement,rule_based,signal,True,orphan_disbursement,25,1.0,0.0641025641025641,25.0,25.0,1.0,1.0,1.0,1.0
+rule:shared_bank_account,rule_based,signal,True,shared_account,350,1.0,0.7692307692307693,300.0,300.0,1.0,1.0,1.0,0.8571428571428571
+rule:duplicate_cnic_multiple_identities,rule_based,signal,False,-,0,,0.0,,,,,,
+rule:cnic_mismatch,rule_based,signal,False,-,322,0.09006211180124224,0.05897435897435897,,,,,,
+rule:duplicate_cycle_payment,rule_based,signal,False,-,218,1.0,0.558974358974359,,,,,,
+rule:payment_to_inactive_beneficiary,rule_based,signal,False,-,108,1.0,0.27692307692307694,,,,,,
+fuzzy:duplicate_identity,fuzzy,signal,True,duplicate_identity,80,1.0,0.1076923076923077,40.0,40.0,1.0,1.0,1.0,0.5
+iforest:standard,isolation_forest,signal,True,multivariate_anomaly,159,0.7924528301886793,0.32051282051282054,3.0,25.0,0.018867924528301886,0.12,0.03260869565217391,0.018867924528301886
+iforest:layered,isolation_forest,signal,True,multivariate_anomaly,139,0.1510791366906475,0.05384615384615385,21.0,25.0,0.1510791366906475,0.84,0.25609756097560976,0.1510791366906475
+baseline:payment_count_gt_6,baseline,signal,True,multivariate_anomaly,217,1.0,0.5564102564102564,25.0,25.0,0.1152073732718894,1.0,0.20661157024793386,0.1152073732718894
+METHOD rule_based (validated 2),rule_based,method,False,-,375,1.0,0.8333333333333334,,,,,,
+METHOD rule_based (all 6),rule_based,method,False,-,699,0.580829756795422,0.9051282051282051,,,,,,
+METHOD fuzzy linkage,fuzzy,method,False,-,80,1.0,0.1076923076923077,,,,,,
+METHOD isolation_forest (standard),isolation_forest,method,False,-,159,0.7924528301886793,0.32051282051282054,,,,,,
+METHOD isolation_forest (layered),isolation_forest,method,False,-,139,0.1510791366906475,0.05384615384615385,,,,,,
+METHOD ENSEMBLE (rules2 + fuzzy + IF),ensemble,method,False,-,592,0.8006756756756757,0.9897435897435898,,,,,,

@@ -1,0 +1,5 @@
+planted_pattern,METHOD rule_based (validated 2),METHOD rule_based (all 6),METHOD fuzzy linkage,METHOD isolation_forest (standard),METHOD isolation_forest (layered),METHOD ENSEMBLE (rules2 + fuzzy + IF)
+orphan_disbursement,1.0,1.0,0.0,0.0,0.0,1.0
+shared_account,1.0,1.0,0.006666666666666667,0.37,0.0,1.0
+duplicate_identity,0.0,0.65,1.0,0.275,0.0,1.0
+multivariate_anomaly,0.0,0.08,0.0,0.12,0.84,0.84
