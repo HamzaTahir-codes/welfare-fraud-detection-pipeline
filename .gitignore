@@ -4,6 +4,11 @@ __pycache__/
 .DS_Store
 .env
 data/raw/*.csv
+data/clean/*.csv
+data/staging/*.csv
 data/staging/*.csv
 airflow/airflow.db
 airflow/logs/
+data/reports/*.html
+data/staging/*.json
+data/dashboard/

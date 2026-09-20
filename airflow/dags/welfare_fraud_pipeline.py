@@ -6,6 +6,8 @@ welfare_fraud_pipeline.py  --  Stage 9: Orchestration
                                            +--> iforest_layered <--------+
                                                        |
                                                compare_methods -> validate_run (quality gate)
+                                                                          |
+                                                                 publish_dashboard
 
 Design notes
   * Runs INSIDE the Airflow containers with the project bind-mounted at
@@ -23,6 +25,9 @@ Design notes
     captured and handed to compare_methods so the report labels are correct.
   * Stage 1 data generation is deliberately NOT in this DAG: generate_duplicate_identities.py
     appends and inject_messiness.py rewrites in place, so they are not safe to re-run.
+  * publish_dashboard runs ONLY if validate_run passed. It writes a snapshot folder (plus the written
+    report) under data/dashboard/ and moves latest.json last. The Streamlit app reads only that
+    snapshot, so a failed or in-progress run never changes what the dashboard shows.
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ MODULE_RULE_BASED = "src.fraud_detection.rule_based"
 MODULE_FUZZY = "src.fraud_detection.fuzzy_record"
 MODULE_IFOREST = "src.fraud_detection.isolation_forest"
 MODULE_COMPARE = "src.fraud_detection.compare_methods"
+MODULE_PUBLISH = "src.dashboard.publish"
 IFOREST_LAYERED_FLAG = "--layered"
 
 # Schedule: cron evaluated in TIMEZONE. Docker on a laptop only runs while the laptop is awake,
@@ -271,6 +277,14 @@ def welfare_fraud_pipeline():
             raise RuntimeError("Validation failed:\n  - " + "\n  - ".join(failures))
         return {"checks_passed": len(report)}
 
+    # ---------- Stage 10: publish the dashboard snapshot + written report ----------
+    @task(task_id="publish_dashboard")
+    def publish_dashboard(layered_run_id: str, **context) -> None:
+        # Downstream of validate_run, so it only fires for a run that passed the quality gate.
+        # The layered Isolation Forest run_id arrives by XCom, the same way compare_methods gets it.
+        _run_module(MODULE_PUBLISH, "--if-layered-run-id", layered_run_id,
+                    "--dag-run-id", context["dag_run"].run_id)
+
     # ---------- wiring ----------
     loaded = load(transform(extract()))
     rb = rule_based(loaded)
@@ -278,7 +292,10 @@ def welfare_fraud_pipeline():
     if_std = iforest_standard(loaded)
     if_lay = iforest_layered()
     [rb, fz, if_std] >> if_lay
-    compare_methods(if_std, if_lay) >> validate_run()
+    cmp = compare_methods(if_std, if_lay)
+    val = validate_run()
+    pub = publish_dashboard(if_lay)
+    cmp >> val >> pub
 
 
 welfare_fraud_pipeline()
