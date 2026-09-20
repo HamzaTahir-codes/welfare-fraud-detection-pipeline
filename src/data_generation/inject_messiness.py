@@ -40,11 +40,19 @@ PROTECTED_COLUMNS = {
 
 
 def load_ground_truth_keys(gt_path: Path) -> set:
-    """Loads beneficiary_ids involved in planted fraud, so we never drop/duplicate those rows."""
+    """Loads beneficiary_ids involved in ANY planted fraud pattern, across
+    ground_truth_fraud_ids.csv's two schemas: shared_bank_account/orphaned
+    rows use `beneficiary_id`; duplicate_identity rows use
+    `original_beneficiary_id` / `duplicate_beneficiary_id` instead.
+    """
     if not gt_path.exists():
         return set()
     gt = pd.read_csv(gt_path)
-    return set(gt["beneficiary_id"].dropna())
+    keys = set()
+    for col in ("beneficiary_id", "original_beneficiary_id", "duplicate_beneficiary_id"):
+        if col in gt.columns:
+            keys |= set(gt[col].dropna())
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +136,9 @@ def mess_beneficiaries(df: pd.DataFrame, missing_rate: float, outlier_rate: floa
     )
 
     # Mixed date formats for date_of_birth (some DD/MM/YYYY instead of YYYY-MM-DD)
-    def mess_date(val):
+    def mess_date(val, bid):
+        if bid in protected_ids:
+            return val
         if pd.isna(val) or random.random() > 0.15:
             return val
         try:
@@ -137,7 +147,13 @@ def mess_beneficiaries(df: pd.DataFrame, missing_rate: float, outlier_rate: floa
         except Exception:
             return val
 
-    df["date_of_birth"] = df["date_of_birth"].apply(mess_date)
+    df["date_of_birth"] = df.apply(
+        lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1
+    )
+
+    df["date_of_birth"] = df.apply(
+        lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1
+    )
 
     # Inconsistent status capitalization/typos
     status_typos = {"Active": ["Active", "active", "ACTIVE", "Actve"], "Inactive": ["Inactive", "inactive"], "Suspended": ["Suspended", "suspended"]}

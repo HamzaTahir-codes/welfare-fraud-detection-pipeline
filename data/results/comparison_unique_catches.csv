@@ -1,4 +1,4 @@
 method,core_caught,caught_by_this_method_only,core_total
-METHOD rule_based (validated 2),325,323,390
-METHOD fuzzy linkage,42,40,390
-METHOD isolation_forest (layered),21,21,390
+METHOD rule_based (validated 2),941,940,1006
+METHOD fuzzy linkage,40,39,1006
+METHOD isolation_forest (layered),21,21,1006

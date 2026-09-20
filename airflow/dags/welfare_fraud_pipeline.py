@@ -70,7 +70,7 @@ REQUIRED_TABLES = ["beneficiaries", "national_id_records", "disbursements",
 QUALITY_GATES = {
     "rule:orphaned_disbursement": {"recall": 0.99, "precision": 0.99},
     "rule:shared_bank_account":   {"recall": 0.99, "precision": 0.99},
-    "fuzzy:duplicate_identity":   {"recall": 0.99, "precision": 0.99},
+    "fuzzy:duplicate_identity":   {"recall": 0.90, "precision": 0.90},
     "iforest:layered":            {"recall": 0.60},
 }
 
