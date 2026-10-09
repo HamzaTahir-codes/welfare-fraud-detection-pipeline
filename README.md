@@ -13,6 +13,7 @@
 
 [![CI](https://github.com/HamzaTahir-codes/welfare-fraud-detection-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/HamzaTahir-codes/welfare-fraud-detection-pipeline/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Live demo](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://welfare-fraud-detection-pipeline.streamlit.app/)
 
 ### Multi-Source Data Pipeline & Fraud Detection System for Public Welfare Disbursement
 
@@ -29,6 +30,8 @@
 <td align="center" width="180"><h2>1</h2><sub><b>Airflow DAG</b><br/>runs it all, then gates the results</sub></td>
 </tr>
 </table>
+
+### [▶ Open the live dashboard](https://welfare-fraud-detection-pipeline.streamlit.app/)
 
 <img src="docs/screenshots/dashboard-demo.gif" alt="Dashboard walkthrough: overview, method comparison heatmap and investigation queue" width="90%"/>
 
@@ -252,6 +255,8 @@ no ground truth, are ever shown to the model (contamination 0.05, 300 trees, see
 <a id="dashboard"></a>
 ## 📊 Dashboard & auto-generated report
 
+**Live: [welfare-fraud-detection-pipeline.streamlit.app](https://welfare-fraud-detection-pipeline.streamlit.app/)**
+
 A Streamlit app that explains itself in plain language, so it can be presented without a script. It reads a **published
 snapshot** written by the last Airflow task, not live Postgres, so what you demo is exactly what passed the quality gate.
 
@@ -356,7 +361,7 @@ welfare-fraud-detection-pipeline/
 **Prerequisites:** Python 3, PostgreSQL 15, Docker Desktop (only for the Airflow route).
 
 > [!TIP]
-> **Just want to see the dashboard?** The repo ships with one published snapshot, so no database or pipeline run is needed:
+> **Just want to see the dashboard?** Open the [live demo](https://welfare-fraud-detection-pipeline.streamlit.app/). To run it locally, the repo ships with one published snapshot, so no database or pipeline run is needed:
 > `pip install -r src/dashboard/requirements.txt && streamlit run src/dashboard/app.py`
 
 ### 1 · Set up
@@ -486,7 +491,8 @@ streamlit run src/dashboard/app.py
 - [x] **Stage 8** · Comparative evaluation of all three methods against the answer key
 - [x] **Stage 9** · Airflow orchestration in Docker, with a regression quality gate
 - [x] **Stage 10** · Streamlit dashboard and auto-generated report
-- [ ] Final report and live demo
+- [x] Live demo on Streamlit Community Cloud
+- [ ] Final report
 
 📖 The full build history, every bug found and every decision (with the reasoning behind it) lives in
 [`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md). Docker and Airflow commands are in [`docs/commands.md`](docs/commands.md).
