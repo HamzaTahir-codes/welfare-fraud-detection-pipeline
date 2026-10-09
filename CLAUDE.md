@@ -17,6 +17,7 @@ Welfare-fraud detection pipeline: synthetic data → ETL → PostgreSQL → thre
 - `isolation_forest --layered` must run after `rule_based` and `fuzzy_record` (it excludes entities they already flagged).
 - `compare_methods`: get IDs via `--list-runs`, then always pass both `--if-run-id` and `--if-layered-run-id`; defaulting to "latest" can mislabel the layered run as standard.
 - `src.dashboard.publish` requires `--if-layered-run-id`; it writes `data/dashboard/<ts>/` and swaps `latest.json` last. The Streamlit app (`src/dashboard/app.py`) only reads the snapshot `latest.json` points to.
+- `data/dashboard/latest.json` and the one snapshot it points to are tracked in git so the dashboard can be hosted with no database (deps: `src/dashboard/requirements.txt`). After publishing a new snapshot, update the `!data/dashboard/<id>/` line in `.gitignore`, or the hosted demo breaks. README result numbers come from `data/results/`; keep them in sync.
 
 ## Airflow / Docker
 
