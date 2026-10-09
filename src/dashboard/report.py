@@ -30,7 +30,7 @@ import pandas as pd
 
 from src.dashboard import insights as ins
 
-ROOT = Path(__file__).resolve().parents[2]          # src/dashboard/report.py -> project root
+ROOT = Path(__file__).resolve().parents[2]  # src/dashboard/report.py -> project root
 SNAPSHOT_ROOT = ROOT / "data" / "dashboard"
 REPORTS_DIR = ROOT / "data" / "reports"
 
@@ -62,6 +62,7 @@ ol li,ul li{margin:4px 0}
 
 # ── small html helpers ───────────────────────────────────────────────────
 
+
 def e(x) -> str:
     return html.escape(str(x))
 
@@ -79,8 +80,7 @@ def bar(v) -> str:
 
 
 def df_html(df: pd.DataFrame) -> str:
-    return df.to_html(index=False, border=0, na_rep="–", escape=True,
-                      float_format=lambda x: f"{x:.3f}")
+    return df.to_html(index=False, border=0, na_rep="–", escape=True, float_format=lambda x: f"{x:.3f}")
 
 
 def section(num: int, title: str, inner: str) -> str:
@@ -88,6 +88,7 @@ def section(num: int, title: str, inner: str) -> str:
 
 
 # ── sections ─────────────────────────────────────────────────────────────
+
 
 def s_summary(data) -> str:
     q, k = data["queue"], data["kpis"]
@@ -100,32 +101,42 @@ def s_summary(data) -> str:
         (f"{k['not_in_registry']:,}", "IDs not in the registry"),
         (f"{n_real}", "detectors graded vs answer key"),
     ]
-    tiles_html = '<div class="tiles">' + "".join(
-        f'<div class="tile"><div class="n">{e(n)}</div><div class="l">{e(l)}</div></div>' for n, l in tiles
-    ) + "</div>"
+    tiles_html = (
+        '<div class="tiles">'
+        + "".join(f'<div class="tile"><div class="n">{e(n)}</div><div class="l">{e(l)}</div></div>' for n, l in tiles)
+        + "</div>"
+    )
     return section(1, "Summary", tiles_html + ul(ins.executive_summary(data)))
 
 
 def s_system() -> str:
     steps = "".join(f"<li><b>{e(t)}.</b> {e(d)}</li>" for t, d in ins.PIPELINE_STEPS)
-    return section(2, "What this system does",
-                   f"<p>{e(ins.PROJECT_SUMMARY)}</p><h3>The pipeline, step by step</h3><ol>{steps}</ol>")
+    return section(
+        2,
+        "What this system does",
+        f"<p>{e(ins.PROJECT_SUMMARY)}</p><h3>The pipeline, step by step</h3><ol>{steps}</ol>",
+    )
 
 
 def s_data(data) -> str:
     k = data["kpis"]
-    counts = pd.DataFrame({"table": list(k["row_counts"].keys()),
-                           "rows": [f"{v:,}" for v in k["row_counts"].values()]})
+    counts = pd.DataFrame({"table": list(k["row_counts"].keys()), "rows": [f"{v:,}" for v in k["row_counts"].values()]})
     rows = []
     for table, flags in k["dq_flag_rates"].items():
         for flag, rate in flags.items():
-            rows.append({"table": table, "flag": flag,
-                         "meaning": ins.DQ_FLAG_EXPLANATIONS.get(flag, ""),
-                         "share of rows": f"{rate * 100:.1f}%"})
+            rows.append(
+                {
+                    "table": table,
+                    "flag": flag,
+                    "meaning": ins.DQ_FLAG_EXPLANATIONS.get(flag, ""),
+                    "share of rows": f"{rate * 100:.1f}%",
+                }
+            )
     inner = (
         "<p>These are the tables in the database when this snapshot was built. Row counts include exact "
-        "duplicate rows that were created on purpose as data-quality noise.</p>" + df_html(counts) +
-        "<h3>Data quality</h3><p>The source data is deliberately messy, like real government data. The pipeline "
+        "duplicate rows that were created on purpose as data-quality noise.</p>"
+        + df_html(counts)
+        + "<h3>Data quality</h3><p>The source data is deliberately messy, like real government data. The pipeline "
         "flags problems in separate columns and never deletes rows, because a suspicious row may be the fraud "
         "we are looking for.</p>" + df_html(pd.DataFrame(rows))
     )
@@ -147,12 +158,14 @@ def s_methods(data) -> str:
             found_html = "<p><b>What it flagged in this run</b></p>" + df_html(found)
         blocks.append(
             f'<div class="method"><h3>{e(m["name"])}</h3>'
-            f'<p><b>What it does.</b> {e(m["what"])}</p>'
-            f'<p><b>Good at.</b> {e(m["strength"])}</p>'
-            f'<p><b>Weak at.</b> {e(m["weakness"])}</p>{found_html}</div>'
+            f"<p><b>What it does.</b> {e(m['what'])}</p>"
+            f"<p><b>Good at.</b> {e(m['strength'])}</p>"
+            f"<p><b>Weak at.</b> {e(m['weakness'])}</p>{found_html}</div>"
         )
-    intro = ("<p>Three independent approaches search for fraud. They all write to one shared results table, "
-             "which is what makes an honest side-by-side comparison possible.</p>")
+    intro = (
+        "<p>Three independent approaches search for fraud. They all write to one shared results table, "
+        "which is what makes an honest side-by-side comparison possible.</p>"
+    )
     return section(4, "The three detection methods", intro + "".join(blocks))
 
 
@@ -185,26 +198,32 @@ def s_results(data) -> str:
             "<table><tr><th>Detector</th><th>Pattern</th><th>Flagged</th><th>Planted cases found</th>"
             "<th>Precision</th><th>Recall</th><th>F1</th></tr>" + "".join(rows) + "</table>"
         )
-        parts.append("<h3>In plain words</h3>" +
-                     ul([ins.describe_detector(r) for _, r in validated.iterrows()]))
+        parts.append("<h3>In plain words</h3>" + ul([ins.describe_detector(r) for _, r in validated.iterrows()]))
 
     if not heuristic.empty:
-        cols = [c for c in ["detector", "family", "level", "n_flagged", "any_fraud_precision"]
-                if c in heuristic.columns]
-        parts.append("<h3>Heuristic rules (no answer key, so no precision or recall)</h3>"
-                     "<p>These rules are useful leads, but nothing planted lets us grade them. "
-                     "'any_fraud_precision' is the share of their flags that happen to belong to any planted pattern.</p>"
-                     + df_html(heuristic[cols]))
+        cols = [
+            c for c in ["detector", "family", "level", "n_flagged", "any_fraud_precision"] if c in heuristic.columns
+        ]
+        parts.append(
+            "<h3>Heuristic rules (no answer key, so no precision or recall)</h3>"
+            "<p>These rules are useful leads, but nothing planted lets us grade them. "
+            "'any_fraud_precision' is the share of their flags that happen to belong to any planted pattern.</p>"
+            + df_html(heuristic[cols])
+        )
 
     if data.get("heatmap_png"):
         b64 = base64.b64encode(Path(data["heatmap_png"]).read_bytes()).decode()
-        parts.append("<h3>Which method catches which planted pattern</h3>"
-                     "<p>Each cell is the share of that planted pattern the method found. A bright cell means "
-                     "the method is good at that pattern; a dark cell means it misses it.</p>"
-                     f'<img alt="coverage heatmap" src="data:image/png;base64,{b64}">')
+        parts.append(
+            "<h3>Which method catches which planted pattern</h3>"
+            "<p>Each cell is the share of that planted pattern the method found. A bright cell means "
+            "the method is good at that pattern; a dark cell means it misses it.</p>"
+            f'<img alt="coverage heatmap" src="data:image/png;base64,{b64}">'
+        )
     elif data.get("coverage") is not None:
-        parts.append("<h3>Which method catches which planted pattern (recall)</h3>" +
-                     data["coverage"].to_html(border=0, na_rep="–", float_format=lambda x: f"{x:.2f}"))
+        parts.append(
+            "<h3>Which method catches which planted pattern (recall)</h3>"
+            + data["coverage"].to_html(border=0, na_rep="–", float_format=lambda x: f"{x:.2f}")
+        )
 
     cols_doc = "".join(f"<li><b>{e(c)}</b>: {e(d)}</li>" for c, d in ins.METRIC_COLUMNS.items())
     parts.append(f"<h3>What the metric names mean</h3><ul>{cols_doc}</ul>")
@@ -240,8 +259,7 @@ def s_queue(data) -> str:
 
 
 def s_limits(data) -> str:
-    return section(7, "Limitations and honest caveats",
-                   f'<div class="warn">{ul(ins.limitations(data))}</div>')
+    return section(7, "Limitations and honest caveats", f'<div class="warn">{ul(ins.limitations(data))}</div>')
 
 
 def s_glossary() -> str:
@@ -260,13 +278,23 @@ def s_appendix(data) -> str:
 
 # ── build ────────────────────────────────────────────────────────────────
 
+
 def build_html(data: dict) -> str:
     m = data["manifest"]
     ts = ins.format_ts(m["published_at"])
-    body = "".join([
-        s_summary(data), s_system(), s_data(data), s_methods(data),
-        s_results(data), s_queue(data), s_limits(data), s_glossary(), s_appendix(data),
-    ])
+    body = "".join(
+        [
+            s_summary(data),
+            s_system(),
+            s_data(data),
+            s_methods(data),
+            s_results(data),
+            s_queue(data),
+            s_limits(data),
+            s_glossary(),
+            s_appendix(data),
+        ]
+    )
     return (
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<title>Welfare Fraud Detection - Findings Report</title>"

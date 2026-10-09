@@ -69,7 +69,7 @@ ENTITY_TYPE = "beneficiary"
 
 FEATURE_COLUMNS = ["n_payments", "mean_amount", "total_amount", "income", "amount_to_income"]
 
-INCOME_FLOOR = 1000          # avoids divide-by-zero for the income=0 tier
+INCOME_FLOOR = 1000  # avoids divide-by-zero for the income=0 tier
 MIN_PLAUSIBLE_AMOUNT = 1000  # legit amounts are 5,000-10,000; anything below is a parsing artefact
 
 DEFAULT_CONTAMINATION = 0.05
@@ -81,14 +81,11 @@ DEFAULT_SEED = 42
 # Data access
 # ---------------------------------------------------------------------
 
+
 def load_inputs(conn):
     """Only the columns this stage needs."""
-    df_ben = pd.read_sql(
-        "SELECT row_id, beneficiary_id, monthly_income_clean FROM beneficiaries;", conn
-    )
-    df_disb = pd.read_sql(
-        "SELECT row_id, disbursement_id, beneficiary_id, amount_pkr_clean FROM disbursements;", conn
-    )
+    df_ben = pd.read_sql("SELECT row_id, beneficiary_id, monthly_income_clean FROM beneficiaries;", conn)
+    df_disb = pd.read_sql("SELECT row_id, disbursement_id, beneficiary_id, amount_pkr_clean FROM disbursements;", conn)
     return df_ben, df_disb
 
 
@@ -123,9 +120,7 @@ def load_covered_ids(conn) -> set:
         """,
         conn,
     )
-    fuzzy = pd.read_sql(
-        "SELECT beneficiary_id, matched_record_id FROM record_linkage_matches WHERE is_flagged;", conn
-    )
+    fuzzy = pd.read_sql("SELECT beneficiary_id, matched_record_id FROM record_linkage_matches WHERE is_flagged;", conn)
     covered = set(shared["beneficiary_id"].dropna())
     covered |= set(fuzzy["beneficiary_id"].dropna()) | set(fuzzy["matched_record_id"].dropna())
     return covered
@@ -134,14 +129,17 @@ def load_covered_ids(conn) -> set:
 def exclude_covered(feats: pd.DataFrame, covered_ids: set) -> pd.DataFrame:
     """Layered mode: drop already-covered beneficiaries from THIS RUN's population only."""
     mask = feats["beneficiary_id"].isin(covered_ids)
-    print(f"[isolation_forest] Layered mode: {int(mask.sum())} beneficiaries already flagged by "
-          f"Stage 5/6 excluded from training and scoring; {int((~mask).sum())} remain.")
+    print(
+        f"[isolation_forest] Layered mode: {int(mask.sum())} beneficiaries already flagged by "
+        f"Stage 5/6 excluded from training and scoring; {int((~mask).sum())} remain."
+    )
     return feats[~mask].reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------
 # Feature engineering (pure function: DataFrames in, DataFrame out)
 # ---------------------------------------------------------------------
+
 
 def build_features(df_ben: pd.DataFrame, df_disb: pd.DataFrame, verbose: bool = True) -> pd.DataFrame:
     # One physical row per beneficiary_id (lowest row_id) -- kept, not deleted, in the DB.
@@ -161,14 +159,16 @@ def build_features(df_ben: pd.DataFrame, df_disb: pd.DataFrame, verbose: bool = 
     amount = amount.mask(amount < MIN_PLAUSIBLE_AMOUNT)
     disb["amount"] = amount
 
-    agg = disb.groupby("beneficiary_id").agg(
-        n_payments=("disbursement_id", "nunique"),
-        mean_amount=("amount", "mean"),
-    ).reset_index()
-
-    feats = ben[["row_id", "beneficiary_id", "monthly_income_clean"]].merge(
-        agg, on="beneficiary_id", how="inner"
+    agg = (
+        disb.groupby("beneficiary_id")
+        .agg(
+            n_payments=("disbursement_id", "nunique"),
+            mean_amount=("amount", "mean"),
+        )
+        .reset_index()
     )
+
+    feats = ben[["row_id", "beneficiary_id", "monthly_income_clean"]].merge(agg, on="beneficiary_id", how="inner")
 
     # Imputation (logged): missing/invalid income -> median; no valid amount -> median.
     income = pd.to_numeric(feats["monthly_income_clean"], errors="coerce").astype(float)
@@ -184,22 +184,31 @@ def build_features(df_ben: pd.DataFrame, df_disb: pd.DataFrame, verbose: bool = 
     feats = feats.drop(columns=["monthly_income_clean"]).reset_index(drop=True)
 
     if verbose:
-        print(f"[isolation_forest] Beneficiaries (deduped): {len(ben)}; "
-              f"scored (>=1 payment): {len(feats)}; not scored (no payments): {len(ben) - len(feats)}")
-        print(f"[isolation_forest] Disbursement rows: {n_before} -> {len(disb)} after collapsing "
-              f"exact duplicate disbursement_ids")
-        print(f"[isolation_forest] Imputed income for {n_income_imputed} beneficiaries, "
-              f"mean_amount for {n_amount_imputed}")
+        print(
+            f"[isolation_forest] Beneficiaries (deduped): {len(ben)}; "
+            f"scored (>=1 payment): {len(feats)}; not scored (no payments): {len(ben) - len(feats)}"
+        )
+        print(
+            f"[isolation_forest] Disbursement rows: {n_before} -> {len(disb)} after collapsing "
+            f"exact duplicate disbursement_ids"
+        )
+        print(
+            f"[isolation_forest] Imputed income for {n_income_imputed} beneficiaries, "
+            f"mean_amount for {n_amount_imputed}"
+        )
         if n_suspect:
-            print(f"[isolation_forest] WARNING: {n_suspect} amounts < {MIN_PLAUSIBLE_AMOUNT} treated as "
-                  f"missing. This is the Stage 3 'Rs. 10,000' -> 0.1 parsing bug; fix "
-                  f"strip_currency_symbols and re-run ETL for cleaner inputs.")
+            print(
+                f"[isolation_forest] WARNING: {n_suspect} amounts < {MIN_PLAUSIBLE_AMOUNT} treated as "
+                f"missing. This is the Stage 3 'Rs. 10,000' -> 0.1 parsing bug; fix "
+                f"strip_currency_symbols and re-run ETL for cleaner inputs."
+            )
     return feats
 
 
 # ---------------------------------------------------------------------
 # Model
 # ---------------------------------------------------------------------
+
 
 def fit_and_score(
     feats: pd.DataFrame,
@@ -223,21 +232,23 @@ def fit_and_score(
     model.fit(X)
 
     out = feats.copy()
-    out["anomaly_score"] = -model.score_samples(X)   # paper's s(x): 1 = anomalous, <0.5 = normal
+    out["anomaly_score"] = -model.score_samples(X)  # paper's s(x): 1 = anomalous, <0.5 = normal
     out["is_flagged"] = model.predict(X) == -1
     return out
 
 
 def to_signal_rows(scored: pd.DataFrame, run_id: str) -> pd.DataFrame:
     flagged = scored[scored["is_flagged"]]
-    return pd.DataFrame({
-        "entity_id": flagged["row_id"].astype(int).astype(str),
-        "entity_type": ENTITY_TYPE,
-        "method": METHOD,
-        "signal_type": SIGNAL_TYPE,
-        "score": flagged["anomaly_score"].round(4),
-        "run_id": run_id,
-    })
+    return pd.DataFrame(
+        {
+            "entity_id": flagged["row_id"].astype(int).astype(str),
+            "entity_type": ENTITY_TYPE,
+            "method": METHOD,
+            "signal_type": SIGNAL_TYPE,
+            "score": flagged["anomaly_score"].round(4),
+            "run_id": run_id,
+        }
+    )
 
 
 def print_flagged_profile(scored: pd.DataFrame):
@@ -252,6 +263,7 @@ def print_flagged_profile(scored: pd.DataFrame):
 # Orchestrator
 # ---------------------------------------------------------------------
 
+
 def run_isolation_forest(
     contamination: float = DEFAULT_CONTAMINATION,
     n_estimators: int = DEFAULT_N_ESTIMATORS,
@@ -262,8 +274,9 @@ def run_isolation_forest(
 ) -> dict:
     run_id = str(uuid.uuid4())
     print(f"[isolation_forest] Starting run {run_id} at {datetime.now().isoformat()}")
-    print(f"[isolation_forest] contamination={contamination}, n_estimators={n_estimators}, "
-          f"seed={seed}, layered={layered}")
+    print(
+        f"[isolation_forest] contamination={contamination}, n_estimators={n_estimators}, seed={seed}, layered={layered}"
+    )
 
     conn = get_connection()
     try:
@@ -274,8 +287,10 @@ def run_isolation_forest(
         scored = fit_and_score(feats, contamination, n_estimators, seed)
 
         signals = to_signal_rows(scored, run_id)
-        print(f"[isolation_forest] Flagged {len(signals)} of {len(scored)} scored beneficiaries "
-              f"({len(signals) / len(scored):.1%})")
+        print(
+            f"[isolation_forest] Flagged {len(signals)} of {len(scored)} scored beneficiaries "
+            f"({len(signals) / len(scored):.1%})"
+        )
         print_flagged_profile(scored)
 
         if export_scores:
@@ -295,17 +310,30 @@ def run_isolation_forest(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Isolation Forest anomaly detection (Stage 7).")
-    parser.add_argument("--contamination", type=float, default=DEFAULT_CONTAMINATION,
-                        help="Expected share of anomalous beneficiaries (sets the flagging cut-off only).")
+    parser.add_argument(
+        "--contamination",
+        type=float,
+        default=DEFAULT_CONTAMINATION,
+        help="Expected share of anomalous beneficiaries (sets the flagging cut-off only).",
+    )
     parser.add_argument("--n-estimators", type=int, default=DEFAULT_N_ESTIMATORS)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Score and print a summary without writing to fraud_signals.")
-    parser.add_argument("--export-scores", type=str, default=None,
-                        help="Optional CSV path for all beneficiary scores (handy for dashboard/charts).")
-    parser.add_argument("--layered", action="store_true",
-                        help="Exclude beneficiaries already flagged by Stage 5/6 before fitting and scoring.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Score and print a summary without writing to fraud_signals."
+    )
+    parser.add_argument(
+        "--export-scores",
+        type=str,
+        default=None,
+        help="Optional CSV path for all beneficiary scores (handy for dashboard/charts).",
+    )
+    parser.add_argument(
+        "--layered",
+        action="store_true",
+        help="Exclude beneficiaries already flagged by Stage 5/6 before fitting and scoring.",
+    )
     args = parser.parse_args()
 
-    run_isolation_forest(args.contamination, args.n_estimators, args.seed, args.dry_run,
-                         args.export_scores, args.layered)
+    run_isolation_forest(
+        args.contamination, args.n_estimators, args.seed, args.dry_run, args.export_scores, args.layered
+    )

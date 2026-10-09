@@ -34,8 +34,14 @@ import pandas as pd
 
 
 PROTECTED_COLUMNS = {
-    "beneficiary_id", "cnic", "national_id_no",
-    "bank_account_number", "linked_beneficiary_id", "disbursement_id", "original_beneficiary_id", "duplicate_beneficiary_id"
+    "beneficiary_id",
+    "cnic",
+    "national_id_no",
+    "bank_account_number",
+    "linked_beneficiary_id",
+    "disbursement_id",
+    "original_beneficiary_id",
+    "duplicate_beneficiary_id",
 }
 
 
@@ -59,6 +65,7 @@ def load_ground_truth_keys(gt_path: Path) -> set:
 # Generic messiness helpers
 # ---------------------------------------------------------------------------
 
+
 def randomly_blank(series: pd.Series, rate: float) -> pd.Series:
     """Sets a random fraction of values to NaN."""
     series = series.copy()
@@ -69,6 +76,7 @@ def randomly_blank(series: pd.Series, rate: float) -> pd.Series:
 
 def randomly_whitespace_and_case(series: pd.Series, rate: float) -> pd.Series:
     """Adds stray whitespace and inconsistent casing to text values."""
+
     def mess(val):
         if pd.isna(val) or random.random() > rate:
             return val
@@ -103,6 +111,7 @@ def duplicate_random_rows(df: pd.DataFrame, rate: float, protected_ids: set, id_
 # Per-file messiness logic
 # ---------------------------------------------------------------------------
 
+
 def mess_beneficiaries(df: pd.DataFrame, missing_rate: float, outlier_rate: float, protected_ids: set) -> pd.DataFrame:
     df = df.copy()
 
@@ -124,9 +133,7 @@ def mess_beneficiaries(df: pd.DataFrame, missing_rate: float, outlier_rate: floa
     # Negative / invalid household size (data entry errors)
     n_bad_household = int(len(df) * outlier_rate)
     bad_idx = df.sample(n=min(n_bad_household, len(df))).index
-    df.loc[bad_idx, "household_size"] = df.loc[bad_idx, "household_size"].apply(
-        lambda x: random.choice([-1, 0, 99])
-    )
+    df.loc[bad_idx, "household_size"] = df.loc[bad_idx, "household_size"].apply(lambda x: random.choice([-1, 0, 99]))
 
     # Income outliers (unrealistically high, or negative from a refund/error)
     n_income_outliers = int(len(df) * outlier_rate)
@@ -147,16 +154,16 @@ def mess_beneficiaries(df: pd.DataFrame, missing_rate: float, outlier_rate: floa
         except Exception:
             return val
 
-    df["date_of_birth"] = df.apply(
-        lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1
-    )
+    df["date_of_birth"] = df.apply(lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1)
 
-    df["date_of_birth"] = df.apply(
-        lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1
-    )
+    df["date_of_birth"] = df.apply(lambda r: mess_date(r["date_of_birth"], r["beneficiary_id"]), axis=1)
 
     # Inconsistent status capitalization/typos
-    status_typos = {"Active": ["Active", "active", "ACTIVE", "Actve"], "Inactive": ["Inactive", "inactive"], "Suspended": ["Suspended", "suspended"]}
+    status_typos = {
+        "Active": ["Active", "active", "ACTIVE", "Actve"],
+        "Inactive": ["Inactive", "inactive"],
+        "Suspended": ["Suspended", "suspended"],
+    }
     df["status"] = df["status"].apply(
         lambda s: random.choice(status_typos.get(s, [s])) if random.random() < 0.15 else s
     )
@@ -223,7 +230,11 @@ def mess_disbursements(df: pd.DataFrame, missing_rate: float, outlier_rate: floa
     df.loc[outlier_idx, "amount_pkr"] = df.loc[outlier_idx, "amount_pkr"].apply(force_outlier)
 
     # Status typos/inconsistency
-    status_variants = {"Success": ["Success", "success", "SUCCESS", "Succes"], "Pending": ["Pending", "pending"], "Reversed": ["Reversed", "reversed"]}
+    status_variants = {
+        "Success": ["Success", "success", "SUCCESS", "Succes"],
+        "Pending": ["Pending", "pending"],
+        "Reversed": ["Reversed", "reversed"],
+    }
     df["status"] = df["status"].apply(
         lambda s: random.choice(status_variants.get(s, [s])) if random.random() < 0.15 else s
     )
@@ -239,10 +250,16 @@ def main():
     parser.add_argument("--raw-dir", type=str, default="data/raw")
     parser.add_argument("--ground-truth-file", type=str, default="data/ground_truth_fraud_ids.csv")
     parser.add_argument("--missing-rate", type=float, default=0.06, help="Base rate for missing values.")
-    parser.add_argument("--outlier-rate", type=float, default=0.02, help="Base rate for negative/outlier numeric values.")
+    parser.add_argument(
+        "--outlier-rate", type=float, default=0.02, help="Base rate for negative/outlier numeric values."
+    )
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--in-place", action="store_true", default=True,
-                         help="Overwrite the same files in data/raw/ (default behavior).")
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        default=True,
+        help="Overwrite the same files in data/raw/ (default behavior).",
+    )
     args = parser.parse_args()
 
     if args.seed is not None:

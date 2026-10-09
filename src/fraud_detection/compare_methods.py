@@ -58,7 +58,7 @@ GROUND_TRUTH_PATH = Path("data") / "ground_truth_fraud_ids.csv"
 RESULTS_DIR = Path("data") / "results"
 
 RULE_METHOD = "rule_based"
-IF_METHOD_PREFIX = "isolation_forest"   # ASSUMPTION: matches your Stage 7 `method` value(s)
+IF_METHOD_PREFIX = "isolation_forest"  # ASSUMPTION: matches your Stage 7 `method` value(s)
 FUZZY_MATCH_METHOD = "fuzzy_duplicate_identity"
 
 # Simulated program window is 6 monthly cycles -> more distinct payments than
@@ -82,6 +82,7 @@ UNVALIDATED_RULE_SIGNALS = [
 
 # ── DATA STRUCTURES ─────────────────────────────────────────────────────
 
+
 @dataclass
 class Truth:
     core: Dict[str, Set[str]] = field(default_factory=dict)
@@ -99,14 +100,15 @@ class Truth:
 @dataclass
 class Detector:
     name: str
-    family: str                  # rule_based | fuzzy | isolation_forest | baseline | ensemble
-    level: str                   # "signal" (one detector) or "method" (method-level rollup)
-    flagged: Set[str]            # business beneficiary_ids
-    target: Optional[str] = None # planted pattern it is validated against (single-target only)
+    family: str  # rule_based | fuzzy | isolation_forest | baseline | ensemble
+    level: str  # "signal" (one detector) or "method" (method-level rollup)
+    flagged: Set[str]  # business beneficiary_ids
+    target: Optional[str] = None  # planted pattern it is validated against (single-target only)
     validated: bool = False
 
 
 # ── GROUND TRUTH -> ENTITY SETS ─────────────────────────────────────────
+
 
 def build_truth(gt: pd.DataFrame, beneficiaries: pd.DataFrame) -> Truth:
     truth = Truth()
@@ -144,8 +146,10 @@ def build_truth(gt: pd.DataFrame, beneficiaries: pd.DataFrame) -> Truth:
             )
         ids = set(anomalies["beneficiary_id"].dropna())
     else:
-        print("[WARN] No multivariate_anomaly rows in the ground-truth file -- Stage 7 pattern will be "
-              "empty. Are you pointing at the ground truth written AFTER generate_anomalous_profiles.py?")
+        print(
+            "[WARN] No multivariate_anomaly rows in the ground-truth file -- Stage 7 pattern will be "
+            "empty. Are you pointing at the ground truth written AFTER generate_anomalous_profiles.py?"
+        )
         ids = set()
     truth.core["multivariate_anomaly"] = ids
     truth.involved["multivariate_anomaly"] = set(ids)
@@ -154,6 +158,7 @@ def build_truth(gt: pd.DataFrame, beneficiaries: pd.DataFrame) -> Truth:
 
 
 # ── SIGNALS -> BUSINESS beneficiary_id ──────────────────────────────────
+
 
 def build_row_maps(beneficiaries: pd.DataFrame, disbursements: pd.DataFrame):
     ben_map = dict(zip(beneficiaries["row_id"].astype(str), beneficiaries["beneficiary_id"]))
@@ -166,15 +171,17 @@ def signals_to_beneficiaries(sig: pd.DataFrame, ben_map: dict, disb_map: dict, k
     flagged, unmapped = set(), 0
     for etype, eid in zip(sig["entity_type"], sig["entity_id"].astype(str)):
         bid = (ben_map if etype == "beneficiary" else disb_map).get(eid)
-        if bid is None and eid in known_ids:   # tolerate a stage that stored the business ID directly
+        if bid is None and eid in known_ids:  # tolerate a stage that stored the business ID directly
             bid = eid
         if bid is None or pd.isna(bid):
             unmapped += 1
             continue
         flagged.add(bid)
     if unmapped:
-        print(f"[WARN] {label}: {unmapped} signal rows could not be mapped to a beneficiary_id "
-              f"(stale row_ids? re-run Stage 5/7 after the last loader_stage run).")
+        print(
+            f"[WARN] {label}: {unmapped} signal rows could not be mapped to a beneficiary_id "
+            f"(stale row_ids? re-run Stage 5/7 after the last loader_stage run)."
+        )
     return flagged
 
 
@@ -194,6 +201,7 @@ def select_run(signals: pd.DataFrame, method_filter, run_id: Optional[str], labe
 
 
 # ── DETECTOR CONSTRUCTION ───────────────────────────────────────────────
+
 
 def payment_count_baseline(disbursements: pd.DataFrame) -> Set[str]:
     """Reference baseline, NOT a proposed detector: more distinct payments than
@@ -222,33 +230,68 @@ def build_detectors(
         rule_sets[sig_type] = signals_to_beneficiaries(grp, ben_map, disb_map, known_ids, f"rule:{sig_type}")
 
     for sig_type, pattern in VALIDATED_RULE_SIGNALS.items():
-        dets.append(Detector(f"rule:{sig_type}", "rule_based", "signal",
-                             rule_sets.get(sig_type, set()), target=pattern, validated=True))
+        dets.append(
+            Detector(
+                f"rule:{sig_type}",
+                "rule_based",
+                "signal",
+                rule_sets.get(sig_type, set()),
+                target=pattern,
+                validated=True,
+            )
+        )
     for sig_type in UNVALIDATED_RULE_SIGNALS:
-        dets.append(Detector(f"rule:{sig_type}", "rule_based", "signal",
-                             rule_sets.get(sig_type, set()), target=None, validated=False))
+        dets.append(
+            Detector(
+                f"rule:{sig_type}", "rule_based", "signal", rule_sets.get(sig_type, set()), target=None, validated=False
+            )
+        )
 
     # ---- Stage 6: fuzzy linkage (flagged pairs -> both members) ----
     fz = rlm[(rlm["match_method"] == FUZZY_MATCH_METHOD) & (rlm["is_flagged"] == True)]  # noqa: E712
     fuzzy_flagged = set(fz["beneficiary_id"].dropna()) | set(fz["matched_record_id"].dropna())
-    dets.append(Detector("fuzzy:duplicate_identity", "fuzzy", "signal", fuzzy_flagged,
-                         target="duplicate_identity", validated=True))
+    dets.append(
+        Detector(
+            "fuzzy:duplicate_identity", "fuzzy", "signal", fuzzy_flagged, target="duplicate_identity", validated=True
+        )
+    )
 
     # ---- Stage 7: Isolation Forest ----
     is_if = lambda m: m.str.startswith(IF_METHOD_PREFIX)
     if_sig = select_run(signals, is_if, if_run_id, "isolation_forest")
-    if_flagged = signals_to_beneficiaries(if_sig, ben_map, disb_map, known_ids, "isolation_forest") if len(if_sig) else set()
-    dets.append(Detector("iforest:standard", "isolation_forest", "signal", if_flagged,
-                         target="multivariate_anomaly", validated=True))
+    if_flagged = (
+        signals_to_beneficiaries(if_sig, ben_map, disb_map, known_ids, "isolation_forest") if len(if_sig) else set()
+    )
+    dets.append(
+        Detector(
+            "iforest:standard", "isolation_forest", "signal", if_flagged, target="multivariate_anomaly", validated=True
+        )
+    )
     if if_layered_run_id:
         lay_sig = select_run(signals, is_if, if_layered_run_id, "isolation_forest (layered)")
         lay_flagged = signals_to_beneficiaries(lay_sig, ben_map, disb_map, known_ids, "isolation_forest (layered)")
-        dets.append(Detector("iforest:layered", "isolation_forest", "signal", lay_flagged,
-                             target="multivariate_anomaly", validated=True))
+        dets.append(
+            Detector(
+                "iforest:layered",
+                "isolation_forest",
+                "signal",
+                lay_flagged,
+                target="multivariate_anomaly",
+                validated=True,
+            )
+        )
 
     # ---- Reference baseline ----
-    dets.append(Detector("baseline:payment_count_gt_6", "baseline", "signal",
-                         payment_count_baseline(disbursements), target="multivariate_anomaly", validated=False))
+    dets.append(
+        Detector(
+            "baseline:payment_count_gt_6",
+            "baseline",
+            "signal",
+            payment_count_baseline(disbursements),
+            target="multivariate_anomaly",
+            validated=False,
+        )
+    )
 
     # ---- Method-level rollups (what the presentation compares) ----
     by_name = {d.name: d for d in dets}
@@ -262,12 +305,14 @@ def build_detectors(
     if if_layered_run_id:
         best_if = by_name["iforest:layered"].flagged
         dets.append(Detector("METHOD isolation_forest (layered)", "isolation_forest", "method", best_if))
-    dets.append(Detector("METHOD ENSEMBLE (rules2 + fuzzy + IF)", "ensemble", "method",
-                         rb_valid | fuzzy_flagged | best_if))
+    dets.append(
+        Detector("METHOD ENSEMBLE (rules2 + fuzzy + IF)", "ensemble", "method", rb_valid | fuzzy_flagged | best_if)
+    )
     return dets
 
 
 # ── SCORING ─────────────────────────────────────────────────────────────
+
 
 def _safe_div(a: float, b: float) -> float:
     return a / b if b else float("nan")
@@ -280,8 +325,11 @@ def score_detectors(dets: List[Detector], truth: Truth) -> pd.DataFrame:
     for d in dets:
         n = len(d.flagged)
         row = {
-            "detector": d.name, "family": d.family, "level": d.level,
-            "has_ground_truth": d.target is not None, "target": d.target or "-",
+            "detector": d.name,
+            "family": d.family,
+            "level": d.level,
+            "has_ground_truth": d.target is not None,
+            "target": d.target or "-",
             "n_flagged": n,
             "any_fraud_precision": _safe_div(len(d.flagged & any_inv), n),
             "overall_core_recall": _safe_div(len(d.flagged & all_core), len(all_core)),
@@ -292,11 +340,27 @@ def score_detectors(dets: List[Detector], truth: Truth) -> pd.DataFrame:
             tp_core, tp_inv = len(d.flagged & core), len(d.flagged & inv)
             precision, recall = _safe_div(tp_inv, n), _safe_div(tp_core, len(core))
             f1 = _safe_div(2 * precision * recall, precision + recall) if (precision + recall) > 0 else 0.0
-            row.update({"tp_core": tp_core, "core_size": len(core), "precision": precision,
-                        "recall": recall, "f1": f1, "precision_strict": _safe_div(tp_core, n)})
+            row.update(
+                {
+                    "tp_core": tp_core,
+                    "core_size": len(core),
+                    "precision": precision,
+                    "recall": recall,
+                    "f1": f1,
+                    "precision_strict": _safe_div(tp_core, n),
+                }
+            )
         else:
-            row.update({"tp_core": np.nan, "core_size": np.nan, "precision": np.nan,
-                        "recall": np.nan, "f1": np.nan, "precision_strict": np.nan})
+            row.update(
+                {
+                    "tp_core": np.nan,
+                    "core_size": np.nan,
+                    "precision": np.nan,
+                    "recall": np.nan,
+                    "f1": np.nan,
+                    "precision_strict": np.nan,
+                }
+            )
         rows.append(row)
     return pd.DataFrame(rows)
 
@@ -315,9 +379,17 @@ def coverage_matrix(dets: List[Detector], truth: Truth, level: str = "method") -
 def unique_catch_table(dets: List[Detector], truth: Truth) -> pd.DataFrame:
     """Among the three methods (+ rule split), how many planted core entities does each catch that
     NO other method catches? This is the honest case for (or against) running all three."""
-    methods = [d for d in dets if d.name in (
-        "METHOD rule_based (validated 2)", "METHOD fuzzy linkage",
-        "METHOD isolation_forest (layered)", "METHOD isolation_forest (standard)")]
+    methods = [
+        d
+        for d in dets
+        if d.name
+        in (
+            "METHOD rule_based (validated 2)",
+            "METHOD fuzzy linkage",
+            "METHOD isolation_forest (layered)",
+            "METHOD isolation_forest (standard)",
+        )
+    ]
     # prefer layered IF if present, otherwise standard
     if any(d.name == "METHOD isolation_forest (layered)" for d in methods):
         methods = [d for d in methods if d.name != "METHOD isolation_forest (standard)"]
@@ -326,9 +398,14 @@ def unique_catch_table(dets: List[Detector], truth: Truth) -> pd.DataFrame:
     for d in methods:
         others = set().union(*[o.flagged for o in methods if o is not d])
         caught = d.flagged & core_all
-        rows.append({"method": d.name, "core_caught": len(caught),
-                     "caught_by_this_method_only": len(caught - others),
-                     "core_total": len(core_all)})
+        rows.append(
+            {
+                "method": d.name,
+                "core_caught": len(caught),
+                "caught_by_this_method_only": len(caught - others),
+                "core_total": len(core_all),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -358,6 +435,7 @@ def fuzzy_pair_tieout(rlm: pd.DataFrame, gt: pd.DataFrame) -> dict:
 
 # ── REPORTING ───────────────────────────────────────────────────────────
 
+
 def _fmt(v) -> str:
     if v is pd.NA or (isinstance(v, (float, np.floating)) and np.isnan(v)):
         return "n/a"
@@ -374,29 +452,63 @@ def md_table(df: pd.DataFrame, index: bool = False) -> str:
     return "\n".join([head, sep] + body)
 
 
-def write_report(path: Path, scores: pd.DataFrame, cov: pd.DataFrame, uniq: pd.DataFrame,
-                 overlap: pd.DataFrame, tie: dict, truth: Truth) -> None:
-    sizes = pd.DataFrame({"pattern": PATTERNS,
-                          "core_entities": [len(truth.core[p]) for p in PATTERNS],
-                          "involved_entities": [len(truth.involved[p]) for p in PATTERNS]})
+def write_report(
+    path: Path,
+    scores: pd.DataFrame,
+    cov: pd.DataFrame,
+    uniq: pd.DataFrame,
+    overlap: pd.DataFrame,
+    tie: dict,
+    truth: Truth,
+) -> None:
+    sizes = pd.DataFrame(
+        {
+            "pattern": PATTERNS,
+            "core_entities": [len(truth.core[p]) for p in PATTERNS],
+            "involved_entities": [len(truth.involved[p]) for p in PATTERNS],
+        }
+    )
     method_cols = ["detector", "n_flagged", "any_fraud_precision", "overall_core_recall"]
-    signal_cols = ["detector", "has_ground_truth", "target", "n_flagged", "tp_core", "core_size",
-                   "precision", "recall", "f1", "precision_strict", "any_fraud_precision"]
+    signal_cols = [
+        "detector",
+        "has_ground_truth",
+        "target",
+        "n_flagged",
+        "tp_core",
+        "core_size",
+        "precision",
+        "recall",
+        "f1",
+        "precision_strict",
+        "any_fraud_precision",
+    ]
     lines = [
-        "# Stage 8 - Comparative Evaluation of Fraud-Detection Methods", "",
+        "# Stage 8 - Comparative Evaluation of Fraud-Detection Methods",
+        "",
         "All numbers are measured against the PLANTED answer key. Perfect or near-perfect scores mean "
-        "'catches the specific planted pattern', not 'works on real welfare fraud'.", "",
-        "## Answer key size", md_table(sizes), "",
+        "'catches the specific planted pattern', not 'works on real welfare fraud'.",
+        "",
+        "## Answer key size",
+        md_table(sizes),
+        "",
         "## Coverage matrix - recall on each planted pattern, by method",
-        md_table(cov, index=True), "",
+        md_table(cov, index=True),
+        "",
         "## Method scorecard",
-        md_table(scores[scores["level"] == "method"][method_cols]), "",
+        md_table(scores[scores["level"] == "method"][method_cols]),
+        "",
         "## Signal-level detail (P/R/F1 against each detector's own target pattern)",
-        md_table(scores[scores["level"] == "signal"][signal_cols].astype({"tp_core": "Int64", "core_size": "Int64"})), "",
+        md_table(scores[scores["level"] == "signal"][signal_cols].astype({"tp_core": "Int64", "core_size": "Int64"})),
+        "",
         "## What each method catches that the others miss (core planted entities)",
-        md_table(uniq), "",
-        "## Flagged-set overlap (Jaccard)", md_table(overlap, index=True), "",
-        "## Tie-out with Stage 6 (pair-level)", md_table(pd.DataFrame([tie])), "",
+        md_table(uniq),
+        "",
+        "## Flagged-set overlap (Jaccard)",
+        md_table(overlap, index=True),
+        "",
+        "## Tie-out with Stage 6 (pair-level)",
+        md_table(pd.DataFrame([tie])),
+        "",
         "## How to read this honestly",
         "- `precision` counts hub-account owners (shared_account) and original beneficiaries (duplicate_identity) "
         "as legitimately involved; `precision_strict` counts only the logged culprits and is the number "
@@ -418,6 +530,7 @@ def write_report(path: Path, scores: pd.DataFrame, cov: pd.DataFrame, uniq: pd.D
 def plot_coverage(cov: pd.DataFrame, path: Path) -> None:
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
@@ -432,8 +545,7 @@ def plot_coverage(cov: pd.DataFrame, path: Path) -> None:
     ax.set_yticklabels(cov.index, fontsize=9)
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
-            ax.text(j, i, "n/a" if np.isnan(data[i, j]) else f"{data[i, j]:.2f}",
-                    ha="center", va="center", fontsize=9)
+            ax.text(j, i, "n/a" if np.isnan(data[i, j]) else f"{data[i, j]:.2f}", ha="center", va="center", fontsize=9)
     ax.set_title("Recall on planted fraud patterns, by method")
     fig.colorbar(im, ax=ax, fraction=0.03)
     fig.tight_layout()
@@ -443,8 +555,8 @@ def plot_coverage(cov: pd.DataFrame, path: Path) -> None:
 
 # ── ORCHESTRATION ───────────────────────────────────────────────────────
 
-def run_comparison(gt, beneficiaries, disbursements, signals, rlm,
-                   if_run_id=None, if_layered_run_id=None) -> dict:
+
+def run_comparison(gt, beneficiaries, disbursements, signals, rlm, if_run_id=None, if_layered_run_id=None) -> dict:
     truth = build_truth(gt, beneficiaries)
     dets = build_detectors(signals, rlm, beneficiaries, disbursements, if_run_id, if_layered_run_id)
     return {
@@ -462,19 +574,28 @@ def load_db_tables(conn):
     beneficiaries = pd.read_sql("SELECT row_id, beneficiary_id, bank_account_number FROM beneficiaries;", conn)
     disbursements = pd.read_sql("SELECT row_id, disbursement_id, beneficiary_id FROM disbursements;", conn)
     signals = pd.read_sql(
-        "SELECT entity_id, entity_type, method, signal_type, score, run_id, created_at FROM fraud_signals;", conn)
+        "SELECT entity_id, entity_type, method, signal_type, score, run_id, created_at FROM fraud_signals;", conn
+    )
     signals["entity_id"] = signals["entity_id"].astype(str)
     rlm = pd.read_sql(
         "SELECT beneficiary_id, matched_record_id, match_method, confidence_score, is_flagged "
-        "FROM record_linkage_matches;", conn)
+        "FROM record_linkage_matches;",
+        conn,
+    )
     return beneficiaries, disbursements, signals, rlm
 
 
 def print_runs(signals: pd.DataFrame) -> None:
-    g = (signals.groupby(["method", "run_id"])
-         .agg(rows=("entity_id", "size"), first_created=("created_at", "min"),
-              signal_types=("signal_type", lambda s: ", ".join(sorted(set(s)))))
-         .reset_index().sort_values("first_created"))
+    g = (
+        signals.groupby(["method", "run_id"])
+        .agg(
+            rows=("entity_id", "size"),
+            first_created=("created_at", "min"),
+            signal_types=("signal_type", lambda s: ", ".join(sorted(set(s)))),
+        )
+        .reset_index()
+        .sort_values("first_created")
+    )
     print(g.to_string(index=False))
 
 
@@ -482,13 +603,20 @@ def main():
     parser = argparse.ArgumentParser(description="Stage 8: comparative evaluation of the three detection methods.")
     parser.add_argument("--ground-truth", type=str, default=str(GROUND_TRUTH_PATH))
     parser.add_argument("--results-dir", type=str, default=str(RESULTS_DIR))
-    parser.add_argument("--if-run-id", type=str, default=None, help="Isolation Forest (standard) run_id; default = latest.")
-    parser.add_argument("--if-layered-run-id", type=str, default=None, help="Isolation Forest --layered run_id (optional).")
-    parser.add_argument("--list-runs", action="store_true", help="Print method/run_id inventory of fraud_signals and exit.")
+    parser.add_argument(
+        "--if-run-id", type=str, default=None, help="Isolation Forest (standard) run_id; default = latest."
+    )
+    parser.add_argument(
+        "--if-layered-run-id", type=str, default=None, help="Isolation Forest --layered run_id (optional)."
+    )
+    parser.add_argument(
+        "--list-runs", action="store_true", help="Print method/run_id inventory of fraud_signals and exit."
+    )
     parser.add_argument("--no-plot", action="store_true")
     args = parser.parse_args()
 
     from src.database.connection import get_connection  # same import path as rule_based.py
+
     conn = get_connection()
     try:
         beneficiaries, disbursements, signals, rlm = load_db_tables(conn)
@@ -500,8 +628,7 @@ def main():
         return
 
     gt = pd.read_csv(args.ground_truth, dtype=str)
-    result = run_comparison(gt, beneficiaries, disbursements, signals, rlm,
-                            args.if_run_id, args.if_layered_run_id)
+    result = run_comparison(gt, beneficiaries, disbursements, signals, rlm, args.if_run_id, args.if_layered_run_id)
 
     out = Path(args.results_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -509,8 +636,15 @@ def main():
     result["coverage"].to_csv(out / "comparison_coverage_matrix.csv")
     result["unique"].to_csv(out / "comparison_unique_catches.csv", index=False)
     result["overlap"].to_csv(out / "comparison_overlap_jaccard.csv")
-    write_report(out / "comparison_report.md", result["scores"], result["coverage"], result["unique"],
-                 result["overlap"], result["tieout"], result["truth"])
+    write_report(
+        out / "comparison_report.md",
+        result["scores"],
+        result["coverage"],
+        result["unique"],
+        result["overlap"],
+        result["tieout"],
+        result["truth"],
+    )
     if not args.no_plot:
         plot_coverage(result["coverage"], out / "comparison_coverage_heatmap.png")
 
@@ -518,8 +652,11 @@ def main():
     print(result["coverage"].round(3).to_string())
     print("\n=== Method scorecard ===")
     sc = result["scores"]
-    print(sc[sc["level"] == "method"][["detector", "n_flagged", "any_fraud_precision", "overall_core_recall"]]
-          .round(3).to_string(index=False))
+    print(
+        sc[sc["level"] == "method"][["detector", "n_flagged", "any_fraud_precision", "overall_core_recall"]]
+        .round(3)
+        .to_string(index=False)
+    )
     print(f"\nStage 6 pair-level tie-out: {result['tieout']}")
     print(f"\nWrote results to {out.resolve()}")
 

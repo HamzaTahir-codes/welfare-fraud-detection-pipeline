@@ -40,9 +40,9 @@ from pathlib import Path
 
 import pendulum
 
-try:                                   # Airflow 3.x
+try:  # Airflow 3.x
     from airflow.sdk import dag, task
-except ImportError:                    # Airflow 2.x
+except ImportError:  # Airflow 2.x
     from airflow.decorators import dag, task
 
 # ── CONFIG ────────────────────────────────────────────────────────────────
@@ -58,20 +58,19 @@ IFOREST_LAYERED_FLAG = "--layered"
 
 # Schedule: cron evaluated in TIMEZONE. Docker on a laptop only runs while the laptop is awake,
 # so pick a time it is usually on. Set to None to go back to manual-only.
-SCHEDULE_CRON = "0 21 * * *"          # daily 21:00
+SCHEDULE_CRON = "0 21 * * *"  # daily 21:00
 TIMEZONE = "Asia/Karachi"
 
 # Tables that must be non-empty after a run.
-REQUIRED_TABLES = ["beneficiaries", "national_id_records", "disbursements",
-                   "fraud_signals", "record_linkage_matches"]
+REQUIRED_TABLES = ["beneficiaries", "national_id_records", "disbursements", "fraud_signals", "record_linkage_matches"]
 
 # Regression floors on PLANTED patterns (read from data/results/comparison_detector_metrics.csv).
 # These catch silent breakage; they are not claims about real-world fraud detection.
 QUALITY_GATES = {
     "rule:orphaned_disbursement": {"recall": 0.99, "precision": 0.99},
-    "rule:shared_bank_account":   {"recall": 0.99, "precision": 0.99},
-    "fuzzy:duplicate_identity":   {"recall": 0.90, "precision": 0.90},
-    "iforest:layered":            {"recall": 0.60},
+    "rule:shared_bank_account": {"recall": 0.99, "precision": 0.99},
+    "fuzzy:duplicate_identity": {"recall": 0.90, "precision": 0.90},
+    "iforest:layered": {"recall": 0.60},
 }
 
 # Hub-and-spoke semantics: PARTIAL load (a spoke table failed) continues with a
@@ -80,6 +79,7 @@ FAIL_ON_PARTIAL_LOAD = False
 
 
 # ── HELPERS ───────────────────────────────────────────────────────────────
+
 
 def _prepare_env() -> None:
     """Make the project's relative paths and imports behave as they do from your shell."""
@@ -97,13 +97,14 @@ def _prepare_env() -> None:
 
 def _run_module(module: str, *args: str) -> None:
     """Run `python -m <module> <args>` from the project root, streaming output into the task log."""
-    _prepare_env()   # chdir + PROJECT_DB_HOST -> DB_HOST, BEFORE the subprocess env is copied
+    _prepare_env()  # chdir + PROJECT_DB_HOST -> DB_HOST, BEFORE the subprocess env is copied
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(filter(None, [str(PROJECT_ROOT), env.get("PYTHONPATH", "")]))
     cmd = [sys.executable, "-m", module, *args]
     print(f"$ cd {PROJECT_ROOT} && {' '.join(cmd)}", flush=True)
-    with subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env, text=True, bufsize=1,
-                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as proc:
+    with subprocess.Popen(
+        cmd, cwd=PROJECT_ROOT, env=env, text=True, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    ) as proc:
         for line in proc.stdout:
             print(line, end="", flush=True)
     if proc.returncode != 0:
@@ -132,13 +133,14 @@ def _latest_iforest_run_id() -> str:
 
 # ── DAG ───────────────────────────────────────────────────────────────────
 
+
 @dag(
     dag_id="welfare_fraud_pipeline",
     description="ETL -> rule-based / fuzzy / Isolation Forest detection -> comparative evaluation",
     schedule=SCHEDULE_CRON,
     start_date=pendulum.datetime(2026, 9, 1, tz=TIMEZONE),
-    catchup=False,                 # never backfill missed days
-    max_active_runs=1,             # loader truncates shared tables: never run two at once
+    catchup=False,  # never backfill missed days
+    max_active_runs=1,  # loader truncates shared tables: never run two at once
     dagrun_timeout=timedelta(hours=2),
     default_args={"retries": 1, "retry_delay": timedelta(minutes=2)},
     tags=["welfare-fraud", "etl", "fraud-detection"],
@@ -155,8 +157,11 @@ def welfare_fraud_pipeline():
         summary = run_extract()
         if summary["status"] == "FAILED":
             raise RuntimeError(f"Extract failed: {summary.get('message')}")
-        return {"run_id": summary["run_id"], "status": summary["status"],
-                "skipped_sources": summary.get("skipped_sources", [])}
+        return {
+            "run_id": summary["run_id"],
+            "status": summary["status"],
+            "skipped_sources": summary.get("skipped_sources", []),
+        }
 
     # ---------- Stage 3: Transform ----------
     @task(task_id="transform")
@@ -167,8 +172,11 @@ def welfare_fraud_pipeline():
         result = run_transform_stage(extract_summary)
         if str(result["status"]).lower() == "failed":
             raise RuntimeError(f"Transform failed: {result.get('reason')}")
-        return {"run_id": result["run_id"], "status": result["status"],
-                "skipped_sources": result.get("skipped_sources", [])}
+        return {
+            "run_id": result["run_id"],
+            "status": result["status"],
+            "skipped_sources": result.get("skipped_sources", []),
+        }
 
     # ---------- Stage 4: Load (idempotent: truncates first) ----------
     @task(task_id="load")
@@ -217,10 +225,11 @@ def welfare_fraud_pipeline():
     @task(task_id="compare_methods")
     def compare_methods(standard_run_id: str, layered_run_id: str) -> None:
         if standard_run_id == layered_run_id:
-            raise RuntimeError("Standard and layered Isolation Forest run_ids are identical - "
-                               "check that --layered actually created a second run.")
-        _run_module(MODULE_COMPARE, "--if-run-id", standard_run_id,
-                    "--if-layered-run-id", layered_run_id)
+            raise RuntimeError(
+                "Standard and layered Isolation Forest run_ids are identical - "
+                "check that --layered actually created a second run."
+            )
+        _run_module(MODULE_COMPARE, "--if-run-id", standard_run_id, "--if-layered-run-id", layered_run_id)
 
     # ---------- Quality gate: did the run actually produce sane results? ----------
     @task(task_id="validate_run")
@@ -282,8 +291,7 @@ def welfare_fraud_pipeline():
     def publish_dashboard(layered_run_id: str, **context) -> None:
         # Downstream of validate_run, so it only fires for a run that passed the quality gate.
         # The layered Isolation Forest run_id arrives by XCom, the same way compare_methods gets it.
-        _run_module(MODULE_PUBLISH, "--if-layered-run-id", layered_run_id,
-                    "--dag-run-id", context["dag_run"].run_id)
+        _run_module(MODULE_PUBLISH, "--if-layered-run-id", layered_run_id, "--dag-run-id", context["dag_run"].run_id)
 
     # ---------- wiring ----------
     loaded = load(transform(extract()))

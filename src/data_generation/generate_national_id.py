@@ -102,7 +102,7 @@ def generate_extra_citizen(fake: Faker, next_id: int) -> dict:
     gender = random.choice(["Male", "Female"])
     full_name = fake.name_male() if gender == "Male" else fake.name_female()
     dob = fake.date_of_birth(minimum_age=18, maximum_age=90)
-    cnic = f"{random.randint(10000,99999)}-{random.randint(1000000,9999999)}-{random.randint(0,9)}"
+    cnic = f"{random.randint(10000, 99999)}-{random.randint(1000000, 9999999)}-{random.randint(0, 9)}"
 
     return {
         "national_id_no": cnic,
@@ -116,7 +116,9 @@ def generate_extra_citizen(fake: Faker, next_id: int) -> dict:
     }
 
 
-def generate_national_id_records(beneficiaries: pd.DataFrame, match_rate: float, extra_citizens: int, fake: Faker) -> pd.DataFrame:
+def generate_national_id_records(
+    beneficiaries: pd.DataFrame, match_rate: float, extra_citizens: int, fake: Faker
+) -> pd.DataFrame:
     records = []
 
     # Decide which beneficiaries get a matching national ID record
@@ -181,9 +183,7 @@ def main():
 
     beneficiaries_path = Path(args.beneficiaries_file)
     if not beneficiaries_path.exists():
-        raise FileNotFoundError(
-            f"Could not find {beneficiaries_path}. Run generate_beneficiaries.py first."
-        )
+        raise FileNotFoundError(f"Could not find {beneficiaries_path}. Run generate_beneficiaries.py first.")
 
     beneficiaries = pd.read_csv(beneficiaries_path)
     print(f"Loaded {len(beneficiaries)} beneficiaries from {beneficiaries_path}")

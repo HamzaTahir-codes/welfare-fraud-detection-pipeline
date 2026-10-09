@@ -81,7 +81,7 @@ def generate_normal_disbursements(beneficiaries: pd.DataFrame, cycles: list) -> 
                 "disbursement_cycle": cycle,
                 "disbursement_date": random_date_in_cycle(cycle),
                 "payment_method": random.choice(PAYMENT_METHODS),
-                "branch_or_agent_code": f"BR-{random.randint(100,299)}",
+                "branch_or_agent_code": f"BR-{random.randint(100, 299)}",
                 "status": random.choice(STATUS),
             }
             records.append(record)
@@ -90,7 +90,9 @@ def generate_normal_disbursements(beneficiaries: pd.DataFrame, cycles: list) -> 
     return records, disb_counter
 
 
-def plant_shared_account_fraud(records: list, beneficiaries: pd.DataFrame, fraud_account_rate: float, start_counter: int, cycles: list):
+def plant_shared_account_fraud(
+    records: list, beneficiaries: pd.DataFrame, fraud_account_rate: float, start_counter: int, cycles: list
+):
     """
     Picks a small set of 'hub' accounts and reassigns a handful of OTHER
     beneficiaries' disbursements to funnel into those same accounts --
@@ -126,17 +128,19 @@ def plant_shared_account_fraud(records: list, beneficiaries: pd.DataFrame, fraud
                     "disbursement_cycle": cycle,
                     "disbursement_date": random_date_in_cycle(cycle),
                     "payment_method": random.choice(PAYMENT_METHODS),
-                    "branch_or_agent_code": f"BR-{random.randint(100,299)}",
+                    "branch_or_agent_code": f"BR-{random.randint(100, 299)}",
                     "status": random.choice(STATUS),
                 }
                 records.append(record)
                 disb_counter += 1
 
-            ground_truth.append({
-                "fraud_type": "shared_account",
-                "bank_account_number": hub_account,
-                "beneficiary_id": victim["beneficiary_id"],
-            })
+            ground_truth.append(
+                {
+                    "fraud_type": "shared_account",
+                    "bank_account_number": hub_account,
+                    "beneficiary_id": victim["beneficiary_id"],
+                }
+            )
 
     return records, ground_truth, disb_counter
 
@@ -159,15 +163,17 @@ def plant_orphan_disbursements(records: list, n_orphans: int, start_counter: int
             "disbursement_cycle": cycle,
             "disbursement_date": random_date_in_cycle(cycle),
             "payment_method": random.choice(PAYMENT_METHODS),
-            "branch_or_agent_code": f"BR-{random.randint(100,299)}",
+            "branch_or_agent_code": f"BR-{random.randint(100, 299)}",
             "status": "Success",
         }
         records.append(record)
-        ground_truth.append({
-            "fraud_type": "orphan_disbursement",
-            "bank_account_number": fake_account,
-            "beneficiary_id": fake_beneficiary_id,
-        })
+        ground_truth.append(
+            {
+                "fraud_type": "orphan_disbursement",
+                "bank_account_number": fake_account,
+                "beneficiary_id": fake_beneficiary_id,
+            }
+        )
         disb_counter += 1
 
     return records, ground_truth, disb_counter
@@ -177,10 +183,18 @@ def main():
     parser = argparse.ArgumentParser(description="Generate synthetic bank disbursement log with planted fraud.")
     parser.add_argument("--beneficiaries-file", type=str, default="data/raw/beneficiaries.csv")
     parser.add_argument("--cycles", type=int, default=6, help="Number of monthly disbursement cycles to simulate.")
-    parser.add_argument("--fraud-account-rate", type=float, default=0.02,
-                         help="Fraction of beneficiaries whose accounts become 'hub' fraud accounts.")
-    parser.add_argument("--orphan-count", type=int, default=25,
-                         help="Number of disbursements paid to completely fabricated beneficiary IDs.")
+    parser.add_argument(
+        "--fraud-account-rate",
+        type=float,
+        default=0.02,
+        help="Fraction of beneficiaries whose accounts become 'hub' fraud accounts.",
+    )
+    parser.add_argument(
+        "--orphan-count",
+        type=int,
+        default=25,
+        help="Number of disbursements paid to completely fabricated beneficiary IDs.",
+    )
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--output", type=str, default="data/raw/disbursements.csv")
     parser.add_argument("--ground-truth-output", type=str, default="data/ground_truth_fraud_ids.csv")
@@ -210,9 +224,7 @@ def main():
     )
     print(f"Planted shared-account fraud: {len(gt_shared)} beneficiary-account overlaps.")
 
-    records, gt_orphan, counter = plant_orphan_disbursements(
-        records, args.orphan_count, counter, cycles, fake
-    )
+    records, gt_orphan, counter = plant_orphan_disbursements(records, args.orphan_count, counter, cycles, fake)
     print(f"Planted {len(gt_orphan)} orphan disbursements (fabricated beneficiary IDs).")
 
     df = pd.DataFrame(records).sample(frac=1).reset_index(drop=True)  # shuffle

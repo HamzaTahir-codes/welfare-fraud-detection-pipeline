@@ -23,12 +23,12 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-ROOT = Path(__file__).resolve().parents[2]          # src/dashboard/app.py -> project root
+ROOT = Path(__file__).resolve().parents[2]  # src/dashboard/app.py -> project root
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from src.dashboard import insights as ins            # noqa: E402
-from src.dashboard.report import build_report        # noqa: E402
+from src.dashboard import insights as ins  # noqa: E402
+from src.dashboard.report import build_report  # noqa: E402
 
 SNAPSHOT_ROOT = ROOT / "data" / "dashboard"
 POINTER = SNAPSHOT_ROOT / "latest.json"
@@ -36,6 +36,7 @@ REFRESH_EVERY = "30s"
 
 
 # ── SNAPSHOT LOADING ─────────────────────────────────────────────────────
+
 
 def read_pointer():
     """Return the newest snapshot_id, or None if nothing is published yet."""
@@ -61,6 +62,7 @@ def explain(title: str, lines, expanded: bool = True):
 
 
 # ── PAGE 0: START HERE ───────────────────────────────────────────────────
+
 
 def page_start(data: dict, snapshot_id: str):
     st.title("Welfare fraud detection")
@@ -99,14 +101,18 @@ def page_start(data: dict, snapshot_id: str):
 
 # ── PAGE 1: OVERVIEW ─────────────────────────────────────────────────────
 
+
 def page_overview(data: dict, snapshot_id: str):
     m, k = data["manifest"], data["kpis"]
     st.title("Overview")
-    explain("What am I looking at?", [
-        "This page is the health check of one pipeline run: how much data went in, how messy it was, "
-        "and how many beneficiaries each method flagged.",
-        "The numbers come from a snapshot, a frozen copy of the results of the last successful run.",
-    ])
+    explain(
+        "What am I looking at?",
+        [
+            "This page is the health check of one pipeline run: how much data went in, how messy it was, "
+            "and how many beneficiaries each method flagged.",
+            "The numbers come from a snapshot, a frozen copy of the results of the last successful run.",
+        ],
+    )
     st.info(ins.queue_takeaway(data))
 
     c1, c2, c3, c4 = st.columns(4)
@@ -114,8 +120,10 @@ def page_overview(data: dict, snapshot_id: str):
     c2.metric("Published", ins.format_ts(m["published_at"]))
     c3.metric("Beneficiaries in queue", f"{k['queue_size']:,}")
     c4.metric("IDs not in registry", f"{k['not_in_registry']:,}")
-    st.caption("Snapshot ids are UTC timestamps (year, month, day, hour, minute, second). "
-               "The Published time is shown in Pakistan time.")
+    st.caption(
+        "Snapshot ids are UTC timestamps (year, month, day, hour, minute, second). "
+        "The Published time is shown in Pakistan time."
+    )
     with st.expander("Run details (which pipeline run produced this)"):
         st.json({"dag_run_id": m.get("dag_run_id"), "run_ids": m.get("run_ids")})
 
@@ -128,11 +136,13 @@ def page_overview(data: dict, snapshot_id: str):
     left, right = st.columns(2)
     with left:
         st.subheader("Data-quality flag rates")
-        st.caption("The source data is deliberately messy, like real government data. Problems are flagged, never deleted.")
-        rows = [{"table": t, "flag": f, "rate": v}
-                for t, flags in k["dq_flag_rates"].items() for f, v in flags.items()]
-        fig = px.bar(pd.DataFrame(rows), x="rate", y="flag", color="table",
-                     orientation="h", barmode="group", text_auto=".1%")
+        st.caption(
+            "The source data is deliberately messy, like real government data. Problems are flagged, never deleted."
+        )
+        rows = [{"table": t, "flag": f, "rate": v} for t, flags in k["dq_flag_rates"].items() for f, v in flags.items()]
+        fig = px.bar(
+            pd.DataFrame(rows), x="rate", y="flag", color="table", orientation="h", barmode="group", text_auto=".1%"
+        )
         fig.update_xaxes(tickformat=".0%")
         st.plotly_chart(fig)
         with st.expander("What each flag means"):
@@ -140,20 +150,27 @@ def page_overview(data: dict, snapshot_id: str):
                 st.markdown(f"- **{flag}**: {meaning}")
     with right:
         st.subheader("Beneficiaries flagged, by signal")
-        st.caption("Each bar is the number of distinct beneficiaries one signal flagged. The same person can appear in several bars.")
+        st.caption(
+            "Each bar is the number of distinct beneficiaries one signal flagged. The same person can appear in several bars."
+        )
         sig = pd.DataFrame(k["signals_by_type"])
         fig = px.bar(sig, x="n_beneficiaries", y="signal_type", color="method", orientation="h")
         st.plotly_chart(fig)
 
     st.subheader("How many kinds of evidence flag each beneficiary?")
     st.caption("One kind of evidence is a weak lead. Two or more independent kinds is much stronger.")
-    fam = pd.DataFrame({"kinds of evidence": list(k["queue_by_families"].keys()),
-                        "beneficiaries": list(k["queue_by_families"].values())})
+    fam = pd.DataFrame(
+        {
+            "kinds of evidence": list(k["queue_by_families"].keys()),
+            "beneficiaries": list(k["queue_by_families"].values()),
+        }
+    )
     fig = px.bar(fam, x="kinds of evidence", y="beneficiaries", text_auto=True)
     st.plotly_chart(fig)
 
 
 # ── PAGE 2: METHOD COMPARISON ────────────────────────────────────────────
+
 
 def _pick(df: pd.DataFrame, cols: list) -> pd.DataFrame:
     return df[[c for c in cols if c in df.columns]]
@@ -161,11 +178,14 @@ def _pick(df: pd.DataFrame, cols: list) -> pd.DataFrame:
 
 def page_comparison(data: dict, snapshot_id: str):
     st.title("Method comparison")
-    explain("What am I looking at?", [
-        "We planted known fraud in the data, so we can grade every method honestly. This page shows how "
-        "each method did. Precision and recall are the two grades.",
-        ins.BAG_ANALOGY,
-    ])
+    explain(
+        "What am I looking at?",
+        [
+            "We planted known fraud in the data, so we can grade every method honestly. This page shows how "
+            "each method did. Precision and recall are the two grades.",
+            ins.BAG_ANALOGY,
+        ],
+    )
 
     metrics = data["metrics"]
     if metrics is None:
@@ -175,9 +195,24 @@ def page_comparison(data: dict, snapshot_id: str):
 
     st.subheader("Graded against the planted answer key")
     st.dataframe(
-        _pick(validated, ["detector", "family", "level", "target", "n_flagged", "tp_core",
-                          "core_size", "precision", "recall", "f1", "precision_strict",
-                          "any_fraud_precision", "overall_core_recall"]),
+        _pick(
+            validated,
+            [
+                "detector",
+                "family",
+                "level",
+                "target",
+                "n_flagged",
+                "tp_core",
+                "core_size",
+                "precision",
+                "recall",
+                "f1",
+                "precision_strict",
+                "any_fraud_precision",
+                "overall_core_recall",
+            ],
+        ),
         hide_index=True,
     )
     with st.expander("What each column means"):
@@ -190,8 +225,9 @@ def page_comparison(data: dict, snapshot_id: str):
         if "target" in plot.columns:
             label = label + " / " + plot["target"].astype(str)
         plot["label"] = label
-        long = plot.melt(id_vars="label", value_vars=["precision", "recall", "f1"],
-                         var_name="metric", value_name="value")
+        long = plot.melt(
+            id_vars="label", value_vars=["precision", "recall", "f1"], var_name="metric", value_name="value"
+        )
         long["value"] = pd.to_numeric(long["value"], errors="coerce")
         fig = px.bar(long, x="label", y="value", color="metric", barmode="group", range_y=[0, 1])
         st.plotly_chart(fig)
@@ -209,14 +245,15 @@ def page_comparison(data: dict, snapshot_id: str):
     )
 
     st.subheader("Which method catches which planted pattern (recall)")
-    st.caption("Each cell is the share of that planted pattern the method found. Bright means it finds it, dark means it misses it.")
+    st.caption(
+        "Each cell is the share of that planted pattern the method found. Bright means it finds it, dark means it misses it."
+    )
     coverage = data["coverage"]
     shown = False
     if coverage is not None:
         try:
             matrix = coverage.apply(pd.to_numeric, errors="coerce")
-            fig = px.imshow(matrix, text_auto=".2f", aspect="auto", zmin=0, zmax=1,
-                            color_continuous_scale="Blues")
+            fig = px.imshow(matrix, text_auto=".2f", aspect="auto", zmin=0, zmax=1, color_continuous_scale="Blues")
             st.plotly_chart(fig)
             shown = True
         except Exception:
@@ -243,17 +280,21 @@ def page_comparison(data: dict, snapshot_id: str):
 
 # ── PAGE 3: INVESTIGATION QUEUE ──────────────────────────────────────────
 
+
 def page_queue(data: dict, snapshot_id: str):
     q = data["queue"]
     st.title("Investigation queue")
-    explain("What am I looking at?", [
-        "This is the list of people an investigator should look at, most suspicious first. Every flagged "
-        "beneficiary appears once.",
-        "Signals that tend to fire for the same reason are grouped into five kinds of evidence (families), "
-        "and scores are never added up, so correlated signals cannot inflate a case.",
-        "Ranking: first by how many validated kinds of evidence flag the person, then by how many kinds in "
-        "total, then by their highest score.",
-    ])
+    explain(
+        "What am I looking at?",
+        [
+            "This is the list of people an investigator should look at, most suspicious first. Every flagged "
+            "beneficiary appears once.",
+            "Signals that tend to fire for the same reason are grouped into five kinds of evidence (families), "
+            "and scores are never added up, so correlated signals cannot inflate a case.",
+            "Ranking: first by how many validated kinds of evidence flag the person, then by how many kinds in "
+            "total, then by their highest score.",
+        ],
+    )
     st.info(ins.queue_takeaway(data))
     with st.expander("The five kinds of evidence"):
         for fam, meaning in ins.FAMILY_EXPLANATIONS.items():
@@ -290,8 +331,7 @@ def page_queue(data: dict, snapshot_id: str):
             "max_score": st.column_config.ProgressColumn("max_score", min_value=0.0, max_value=1.0, format="%.2f"),
         },
     )
-    st.download_button("Download filtered queue (CSV)", view.to_csv(index=False),
-                       "case_queue_filtered.csv", "text/csv")
+    st.download_button("Download filtered queue (CSV)", view.to_csv(index=False), "case_queue_filtered.csv", "text/csv")
 
     st.subheader("Case detail")
     options = view["beneficiary_id"].head(500).tolist()
@@ -301,7 +341,9 @@ def page_queue(data: dict, snapshot_id: str):
     chosen = st.selectbox("Beneficiary (top 500 of the current filter)", options)
     row = view[view["beneficiary_id"] == chosen].iloc[0]
     if not row["in_registry"]:
-        st.warning("This ID is not in the beneficiary registry: a payment was made against an ID that was never registered.")
+        st.warning(
+            "This ID is not in the beneficiary registry: a payment was made against an ID that was never registered."
+        )
 
     detail = data["signals"][data["signals"]["beneficiary_id"] == chosen]
     st.dataframe(detail[["method", "signal_type", "family", "score", "n_flags"]], hide_index=True)
@@ -312,20 +354,23 @@ def page_queue(data: dict, snapshot_id: str):
 
 # ── PAGE 4: FRAUD EXPLORER ───────────────────────────────────────────────
 
+
 def page_explorer(data: dict, snapshot_id: str):
     s = data["signals"]
     st.title("Fraud explorer")
-    explain("What am I looking at?", [
-        "A signal is one warning raised by one method about one beneficiary. This page lets you filter by "
-        "method and signal type to see exactly who was flagged and how strongly.",
-        "Rules give fixed scores, so many rows share the same score. Fuzzy matching and Isolation Forest give "
-        "graded scores.",
-    ])
+    explain(
+        "What am I looking at?",
+        [
+            "A signal is one warning raised by one method about one beneficiary. This page lets you filter by "
+            "method and signal type to see exactly who was flagged and how strongly.",
+            "Rules give fixed scores, so many rows share the same score. Fuzzy matching and Isolation Forest give "
+            "graded scores.",
+        ],
+    )
 
     c1, c2 = st.columns(2)
     methods = c1.multiselect("Method", sorted(s["method"].unique()), default=sorted(s["method"].unique()))
-    types = c2.multiselect("Signal type", sorted(s["signal_type"].unique()),
-                           default=sorted(s["signal_type"].unique()))
+    types = c2.multiselect("Signal type", sorted(s["signal_type"].unique()), default=sorted(s["signal_type"].unique()))
     f = s[s["method"].isin(methods) & s["signal_type"].isin(types)]
 
     with st.expander("What the selected signals mean", expanded=True):
@@ -337,8 +382,7 @@ def page_explorer(data: dict, snapshot_id: str):
     m2.metric("Signal rows", f"{len(f):,}")
 
     if not f.empty:
-        by_type = (f.groupby(["method", "signal_type"])["beneficiary_id"].nunique()
-                   .reset_index(name="beneficiaries"))
+        by_type = f.groupby(["method", "signal_type"])["beneficiary_id"].nunique().reset_index(name="beneficiaries")
         fig = px.bar(by_type, x="beneficiaries", y="signal_type", color="method", orientation="h")
         st.plotly_chart(fig)
 
@@ -349,13 +393,17 @@ def page_explorer(data: dict, snapshot_id: str):
 
 # ── PAGE 5: REPORT ───────────────────────────────────────────────────────
 
+
 def page_report(data: dict, snapshot_id: str):
     st.title("Findings report")
-    explain("What am I looking at?", [
-        "An automatically written report that explains the system, the results and the limitations in plain "
-        "language, using the numbers of this snapshot. It is regenerated after every successful pipeline run.",
-        "Download it and open it in a browser. Use Print, then Save as PDF, for a PDF copy.",
-    ])
+    explain(
+        "What am I looking at?",
+        [
+            "An automatically written report that explains the system, the results and the limitations in plain "
+            "language, using the numbers of this snapshot. It is regenerated after every successful pipeline run.",
+            "Download it and open it in a browser. Use Print, then Save as PDF, for a PDF copy.",
+        ],
+    )
 
     path = SNAPSHOT_ROOT / snapshot_id / "report.html"
     if st.button("Generate (or regenerate) the report for this snapshot"):
@@ -372,16 +420,18 @@ def page_report(data: dict, snapshot_id: str):
     html_text = path.read_text(encoding="utf-8")
     st.download_button("Download report (HTML)", html_text, f"fraud_report_{snapshot_id}.html", "text/html")
     try:
-        if hasattr(st, "iframe"):            # newer Streamlit (components.html is being retired)
+        if hasattr(st, "iframe"):  # newer Streamlit (components.html is being retired)
             st.iframe(path, height=900)
         else:
             import streamlit.components.v1 as components
+
             components.html(html_text, height=900, scrolling=True)
     except Exception:
         st.caption("Preview not available in this Streamlit version; use the download button.")
 
 
 # ── PAGE 6: GLOSSARY ─────────────────────────────────────────────────────
+
 
 def page_glossary(data: dict, snapshot_id: str):
     st.title("Glossary")
@@ -409,6 +459,7 @@ PAGES = {
 
 # ── AUTO-REFRESH WATCHER ─────────────────────────────────────────────────
 
+
 def _watch_for_new_snapshot(loaded_id: str):
     """If publish.py has moved the pointer, rerun the whole app to load the new snapshot."""
     if read_pointer() != loaded_id:
@@ -416,19 +467,19 @@ def _watch_for_new_snapshot(loaded_id: str):
     st.caption(f"Checking for new results every {REFRESH_EVERY}")
 
 
-if hasattr(st, "fragment"):   # Streamlit >= 1.37; older versions just use the Refresh button
+if hasattr(st, "fragment"):  # Streamlit >= 1.37; older versions just use the Refresh button
     _watch_for_new_snapshot = st.fragment(run_every=REFRESH_EVERY)(_watch_for_new_snapshot)
 
 
 # ── MAIN ─────────────────────────────────────────────────────────────────
+
 
 def main():
     st.set_page_config(page_title="Welfare Fraud Detection", layout="wide")
 
     snapshot_id = read_pointer()
     if snapshot_id is None:
-        st.error("No published snapshot yet. Run: "
-                 "python -m src.dashboard.publish --if-layered-run-id <uuid>")
+        st.error("No published snapshot yet. Run: python -m src.dashboard.publish --if-layered-run-id <uuid>")
         st.stop()
 
     try:

@@ -66,6 +66,7 @@ SCORES = {
 # Data access
 # ---------------------------------------------------------------------
 
+
 def read_table(conn, table_name: str) -> pd.DataFrame:
     """Reads a full table into a DataFrame. Fine at current row counts
     (10K / 38K); revisit with explicit column selection if tables grow."""
@@ -98,11 +99,9 @@ def write_fraud_signals(conn, df: pd.DataFrame) -> int:
 # Rule 1: Duplicate identity -- same CNIC claimed by multiple beneficiary_ids
 # ---------------------------------------------------------------------
 
+
 def rule_duplicate_cnic(df_beneficiaries: pd.DataFrame) -> pd.DataFrame:
-    active = df_beneficiaries[
-        (df_beneficiaries["is_duplicate_row"] == False)
-        & (df_beneficiaries["cnic"].notna())
-    ]
+    active = df_beneficiaries[(df_beneficiaries["is_duplicate_row"] == False) & (df_beneficiaries["cnic"].notna())]
 
     cnic_counts = active.groupby("cnic")["beneficiary_id"].nunique()
     suspicious_cnics = cnic_counts[cnic_counts > 1].index
@@ -126,6 +125,7 @@ def rule_duplicate_cnic(df_beneficiaries: pd.DataFrame) -> pd.DataFrame:
 # beneficiary. See PROJECT_LOG.md for the full writeup of this fix.
 # ---------------------------------------------------------------------
 
+
 def rule_shared_bank_account(df_disbursements: pd.DataFrame) -> pd.DataFrame:
     valid = df_disbursements[df_disbursements["bank_account_number"].notna()]
 
@@ -147,6 +147,7 @@ def rule_shared_bank_account(df_disbursements: pd.DataFrame) -> pd.DataFrame:
 # Rule 3: Orphaned disbursement (pass-through of Stage 3 flag)
 # ---------------------------------------------------------------------
 
+
 def rule_orphaned_disbursement(df_disbursements: pd.DataFrame) -> pd.DataFrame:
     flagged = df_disbursements[df_disbursements["orphaned_beneficiary_flag"] == True]
 
@@ -163,6 +164,7 @@ def rule_orphaned_disbursement(df_disbursements: pd.DataFrame) -> pd.DataFrame:
 # Rule 4: CNIC mismatch between beneficiaries.cnic and linked national_id_no
 # ---------------------------------------------------------------------
 
+
 def rule_cnic_mismatch(df_beneficiaries: pd.DataFrame, df_national_id: pd.DataFrame) -> pd.DataFrame:
     merged = df_beneficiaries.merge(
         df_national_id,
@@ -172,9 +174,7 @@ def rule_cnic_mismatch(df_beneficiaries: pd.DataFrame, df_national_id: pd.DataFr
         suffixes=("_ben", "_nid"),
     )
 
-    mismatches = merged[
-        merged["national_id_no"].notna() & (merged["cnic"] != merged["national_id_no"])
-    ]
+    mismatches = merged[merged["national_id_no"].notna() & (merged["cnic"] != merged["national_id_no"])]
 
     result = mismatches[["row_id"]].drop_duplicates().rename(columns={"row_id": "entity_id"})
     result["entity_id"] = result["entity_id"].astype(str)
@@ -197,10 +197,10 @@ def rule_cnic_mismatch(df_beneficiaries: pd.DataFrame, df_national_id: pd.DataFr
 # duplicates, so this rule isn't just re-detecting messiness injection.
 # ---------------------------------------------------------------------
 
+
 def rule_duplicate_cycle_payment(df_disbursements: pd.DataFrame) -> pd.DataFrame:
     valid = df_disbursements[
-        df_disbursements["beneficiary_id"].notna()
-        & df_disbursements["disbursement_cycle"].notna()
+        df_disbursements["beneficiary_id"].notna() & df_disbursements["disbursement_cycle"].notna()
     ]
 
     # Collapse exact full-row duplicate artifacts: a disbursement_id
@@ -227,9 +227,8 @@ def rule_duplicate_cycle_payment(df_disbursements: pd.DataFrame) -> pd.DataFrame
 # Rule 6: Payment made to a beneficiary whose status is Inactive/Suspended
 # ---------------------------------------------------------------------
 
-def rule_inactive_status_payment(
-    df_beneficiaries: pd.DataFrame, df_disbursements: pd.DataFrame
-) -> pd.DataFrame:
+
+def rule_inactive_status_payment(df_beneficiaries: pd.DataFrame, df_disbursements: pd.DataFrame) -> pd.DataFrame:
     inactive_ids = df_beneficiaries.loc[
         df_beneficiaries["status_clean"].isin(INACTIVE_STATUSES), "beneficiary_id"
     ].unique()
@@ -249,6 +248,7 @@ def rule_inactive_status_payment(
 # Orchestrator
 # ---------------------------------------------------------------------
 
+
 def run_rule_based_detection(dry_run: bool = False) -> dict:
     run_id = str(uuid.uuid4())
     print(f"[rule_based] Starting run {run_id} at {datetime.now().isoformat()}")
@@ -259,9 +259,11 @@ def run_rule_based_detection(dry_run: bool = False) -> dict:
     df_national_id = read_table(conn, "national_id_records")
     df_disbursements = read_table(conn, "disbursements")
 
-    print(f"[rule_based] Loaded {len(df_beneficiaries)} beneficiaries, "
-          f"{len(df_national_id)} national_id records, "
-          f"{len(df_disbursements)} disbursements.")
+    print(
+        f"[rule_based] Loaded {len(df_beneficiaries)} beneficiaries, "
+        f"{len(df_national_id)} national_id records, "
+        f"{len(df_disbursements)} disbursements."
+    )
 
     signal_frames = [
         rule_duplicate_cnic(df_beneficiaries),
@@ -300,8 +302,9 @@ def run_rule_based_detection(dry_run: bool = False) -> dict:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run rule-based fraud detection (Stage 5).")
-    parser.add_argument("--dry-run", action="store_true",
-                         help="Compute signals and print summary without writing to the database.")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Compute signals and print summary without writing to the database."
+    )
     args = parser.parse_args()
 
     run_rule_based_detection(dry_run=args.dry_run)

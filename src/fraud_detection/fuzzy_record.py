@@ -43,7 +43,7 @@ GROUND_TRUTH_PATH = Path("data") / "ground_truth_fraud_ids.csv"
 NAME_WEIGHT = 0.6
 ADDRESS_WEIGHT = 0.4
 
-MIN_SCORE_TO_STORE = 0.50          # don't clutter the table with near-zero scores
+MIN_SCORE_TO_STORE = 0.50  # don't clutter the table with near-zero scores
 THRESHOLD_SEARCH_RANGE = [round(x * 0.01, 2) for x in range(50, 100)]  # 0.50 .. 0.99
 
 MATCH_METHOD = "fuzzy_duplicate_identity"
@@ -54,12 +54,36 @@ MATCH_METHOD = "fuzzy_duplicate_identity"
 # ADJUST this list based on what you actually see in your data (see the
 # diagnostic step in main() before trusting these defaults).
 NAME_STOPWORDS = {
-    "muhammad", "mohammad", "mohammed", "syed", "sheikh", "hafiz",
-    "bibi", "begum", "khan", "bin", "binte", "s/o", "d/o", "w/o",
+    "muhammad",
+    "mohammad",
+    "mohammed",
+    "syed",
+    "sheikh",
+    "hafiz",
+    "bibi",
+    "begum",
+    "khan",
+    "bin",
+    "binte",
+    "s/o",
+    "d/o",
+    "w/o",
 }
 ADDRESS_STOPWORDS = {
-    "house", "street", "st", "road", "rd", "block", "colony",
-    "sector", "phase", "town", "society", "plot", "no", "number",
+    "house",
+    "street",
+    "st",
+    "road",
+    "rd",
+    "block",
+    "colony",
+    "sector",
+    "phase",
+    "town",
+    "society",
+    "plot",
+    "no",
+    "number",
 }
 
 
@@ -69,6 +93,7 @@ def strip_common_tokens(text: str, stopwords: set) -> str:
 
 
 # ── DATA LOADING ─────────────────────────────────────────────────────────
+
 
 def load_beneficiaries(conn) -> pd.DataFrame:
     query = """
@@ -91,13 +116,11 @@ def load_ground_truth_pairs(path: Path) -> set:
     """
     gt = pd.read_csv(path)
     dup = gt[gt["fraud_type"] == "duplicate_identity"]
-    return {
-        frozenset({row["original_beneficiary_id"], row["duplicate_beneficiary_id"]})
-        for _, row in dup.iterrows()
-    }
+    return {frozenset({row["original_beneficiary_id"], row["duplicate_beneficiary_id"]}) for _, row in dup.iterrows()}
 
 
 # ── CANDIDATE GENERATION & SCORING ──────────────────────────────────────
+
 
 def dedupe_exact_rows(df: pd.DataFrame) -> pd.DataFrame:
     """Drop Stage 3/5's exact full-row duplicate artifacts before fuzzy
@@ -138,24 +161,24 @@ def score_pairs(df: pd.DataFrame, pairs: pd.MultiIndex) -> pd.DataFrame:
         address_score = fuzz.token_sort_ratio(addr_a, addr_b) / 100.0
         combined = NAME_WEIGHT * name_score + ADDRESS_WEIGHT * address_score
 
-        records.append({
-            "beneficiary_id_a": row_a["beneficiary_id"],
-            "beneficiary_id_b": row_b["beneficiary_id"],
-            "name_score": name_score,
-            "address_score": address_score,
-            "combined_score": combined,
-        })
+        records.append(
+            {
+                "beneficiary_id_a": row_a["beneficiary_id"],
+                "beneficiary_id_b": row_b["beneficiary_id"],
+                "name_score": name_score,
+                "address_score": address_score,
+                "combined_score": combined,
+            }
+        )
     return pd.DataFrame(records)
 
 
 # ── THRESHOLD TUNING AGAINST GROUND TRUTH ───────────────────────────────
 
+
 def evaluate_threshold(scored: pd.DataFrame, ground_truth_pairs: set, threshold: float) -> dict:
     flagged = scored[scored["combined_score"] >= threshold]
-    flagged_pairs = {
-        frozenset({row["beneficiary_id_a"], row["beneficiary_id_b"]})
-        for _, row in flagged.iterrows()
-    }
+    flagged_pairs = {frozenset({row["beneficiary_id_a"], row["beneficiary_id_b"]}) for _, row in flagged.iterrows()}
 
     true_positives = flagged_pairs & ground_truth_pairs
     precision = len(true_positives) / len(flagged_pairs) if flagged_pairs else 0.0
@@ -191,13 +214,18 @@ def print_score_separation_report(scored: pd.DataFrame, ground_truth_pairs: set)
 
     print("\n--- Score separation report ---")
     print(f"True duplicate pairs found in candidates: {len(true_scores)}/{len(ground_truth_pairs)}")
-    print(f"True pair scores -> min={true_scores.min():.3f} median={true_scores.median():.3f} max={true_scores.max():.3f}")
-    print(f"Non-match scores -> min={false_scores.min():.3f} median={false_scores.median():.3f} "
-          f"p90={false_scores.quantile(0.9):.3f} max={false_scores.max():.3f}")
+    print(
+        f"True pair scores -> min={true_scores.min():.3f} median={true_scores.median():.3f} max={true_scores.max():.3f}"
+    )
+    print(
+        f"Non-match scores -> min={false_scores.min():.3f} median={false_scores.median():.3f} "
+        f"p90={false_scores.quantile(0.9):.3f} max={false_scores.max():.3f}"
+    )
     print("--- end report ---\n")
 
 
 # ── WRITE RESULTS ────────────────────────────────────────────────────────
+
 
 def write_matches(conn, scored: pd.DataFrame, threshold: float):
     to_store = scored[scored["combined_score"] >= MIN_SCORE_TO_STORE].copy()
@@ -227,6 +255,7 @@ def write_matches(conn, scored: pd.DataFrame, threshold: float):
 
 # ── MAIN ─────────────────────────────────────────────────────────────────
 
+
 def main():
     conn = get_connection()
     try:
@@ -249,8 +278,10 @@ def main():
         )
 
         n_written = write_matches(conn, scored, threshold=best["threshold"])
-        print(f"Wrote {n_written} candidate pairs to record_linkage_matches "
-              f"(scored >= {MIN_SCORE_TO_STORE}, flagged at >= {best['threshold']}).")
+        print(
+            f"Wrote {n_written} candidate pairs to record_linkage_matches "
+            f"(scored >= {MIN_SCORE_TO_STORE}, flagged at >= {best['threshold']})."
+        )
     finally:
         conn.close()
 

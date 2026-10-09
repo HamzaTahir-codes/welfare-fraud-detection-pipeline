@@ -28,6 +28,7 @@ VALIDATED_SIGNALS = {
 
 # ── LOADING ──────────────────────────────────────────────────────────────
 
+
 def _read_csv(path: Path, **kwargs) -> Optional[pd.DataFrame]:
     return pd.read_csv(path, **kwargs) if path.exists() else None
 
@@ -68,6 +69,7 @@ def format_ts(iso) -> str:
     if dt.tzinfo is None:
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     return dt.astimezone(PKT).strftime("%Y-%m-%d %H:%M:%S") + " PKT"
+
 
 def truthy(series: pd.Series) -> pd.Series:
     return series.astype(str).str.strip().str.lower().isin(["true", "1", "yes"])
@@ -116,30 +118,41 @@ PROJECT_SUMMARY = (
 )
 
 PIPELINE_STEPS = [
-    ("Simulated sources",
-     "Three synthetic source systems are generated: the beneficiary registry, the national ID "
-     "database and the bank payment log. Known fraud patterns are planted, and realistic mess "
-     "(missing values, typos, mixed date formats, duplicate rows) is added on purpose."),
-    ("Extract",
-     "Each source file is loaded, checked against the columns we expect, and copied to a staging "
-     "area. The beneficiary registry is the hub: if it is broken the run stops. The other two "
-     "sources are spokes: if one is missing, the run continues and is marked partial."),
-    ("Transform",
-     "Data is cleaned and standardised (dates, amounts, labels). Problems are flagged in separate "
-     "columns and never deleted, because deleting suspicious rows would destroy the evidence."),
-    ("Load",
-     "Clean tables are loaded into PostgreSQL. There are deliberately no foreign keys, so an "
-     "orphaned payment (a payment to an ID that was never registered) can exist in the database "
-     "and be detected instead of being rejected."),
-    ("Detect",
-     "Three methods search for fraud independently and write their results to one shared table, "
-     "so they can be compared side by side."),
-    ("Compare",
-     "Every method is graded against the planted answer key using precision, recall and F1."),
-    ("Orchestrate and publish",
-     "Apache Airflow runs all of the above in order and checks quality gates. When a run passes, "
-     "a snapshot of the results is published, and this dashboard and the written report "
-     "are refreshed from it."),
+    (
+        "Simulated sources",
+        "Three synthetic source systems are generated: the beneficiary registry, the national ID "
+        "database and the bank payment log. Known fraud patterns are planted, and realistic mess "
+        "(missing values, typos, mixed date formats, duplicate rows) is added on purpose.",
+    ),
+    (
+        "Extract",
+        "Each source file is loaded, checked against the columns we expect, and copied to a staging "
+        "area. The beneficiary registry is the hub: if it is broken the run stops. The other two "
+        "sources are spokes: if one is missing, the run continues and is marked partial.",
+    ),
+    (
+        "Transform",
+        "Data is cleaned and standardised (dates, amounts, labels). Problems are flagged in separate "
+        "columns and never deleted, because deleting suspicious rows would destroy the evidence.",
+    ),
+    (
+        "Load",
+        "Clean tables are loaded into PostgreSQL. There are deliberately no foreign keys, so an "
+        "orphaned payment (a payment to an ID that was never registered) can exist in the database "
+        "and be detected instead of being rejected.",
+    ),
+    (
+        "Detect",
+        "Three methods search for fraud independently and write their results to one shared table, "
+        "so they can be compared side by side.",
+    ),
+    ("Compare", "Every method is graded against the planted answer key using precision, recall and F1."),
+    (
+        "Orchestrate and publish",
+        "Apache Airflow runs all of the above in order and checks quality gates. When a run passes, "
+        "a snapshot of the results is published, and this dashboard and the written report "
+        "are refreshed from it.",
+    ),
 ]
 
 METHODS = [
@@ -147,39 +160,39 @@ METHODS = [
         "key": "rule_based",
         "name": "Rule-based checks",
         "what": "Hand-written checks such as: several different people are paid into the same bank "
-                "account, or a payment was made to an ID that was never registered.",
+        "account, or a payment was made to an ID that was never registered.",
         "strength": "Fast and transparent. Every flag has a clear, explainable reason.",
         "weakness": "Only finds patterns someone thought of in advance. Some rules are heuristics "
-                    "with no answer key to grade them against.",
+        "with no answer key to grade them against.",
     },
     {
         "key": "fuzzy_linkage",
         "name": "Fuzzy record linkage",
         "what": "Compares names and addresses for close-but-not-identical matches between people "
-                "with the same date of birth, to find one person registered twice under slightly "
-                "different details.",
+        "with the same date of birth, to find one person registered twice under slightly "
+        "different details.",
         "strength": "Finds duplicates that exact matching misses, such as typos and abbreviations.",
         "weakness": "The score threshold was tuned on the planted pairs, and the gap between true "
-                    "matches and non-matches was narrow. Real data would need re-tuning.",
+        "matches and non-matches was narrow. Real data would need re-tuning.",
     },
     {
         "key": "isolation_forest",
         "name": "Isolation Forest (anomaly detection)",
         "what": "A machine-learning method that looks at each beneficiary's overall payment profile "
-                "and flags the ones that are statistically unusual, without being told what to look "
-                "for. In layered mode it first sets aside everyone the rules and fuzzy matching "
-                "already flagged, so its flags are new information.",
+        "and flags the ones that are statistically unusual, without being told what to look "
+        "for. In layered mode it first sets aside everyone the rules and fuzzy matching "
+        "already flagged, so its flags are new information.",
         "strength": "Can surface unusual combinations that no single rule covers.",
         "weakness": "Rare but legitimate behaviour also looks unusual, so many of its flags are "
-                    "innocent. It needs a human to review them.",
+        "innocent. It needs a human to review them.",
     },
 ]
 
 FAMILY_EXPLANATIONS = {
     "identity": "Signs the same person may be registered under more than one identity, or that the "
-                "ID does not match official records.",
+    "ID does not match official records.",
     "payment_channel": "Several beneficiaries are paid into the same bank account, or one person is "
-                       "paid twice in a cycle.",
+    "paid twice in a cycle.",
     "existence": "Payments made to an ID that was never registered.",
     "eligibility": "Payments made to someone whose status is Inactive or Suspended.",
     "statistical": "An unusual overall payment profile found by Isolation Forest.",
@@ -260,6 +273,7 @@ GLOSSARY = {
 
 # ── DYNAMIC (NUMBER-DRIVEN) TEXT ─────────────────────────────────────────
 
+
 def describe_detector(row: pd.Series) -> str:
     """One plain-language sentence group for one row of the metrics table."""
     name = str(row.get("detector"))
@@ -272,13 +286,17 @@ def describe_detector(row: pd.Series) -> str:
     flagged_txt = f"flagged {int(n_flagged):,} beneficiaries" if n_flagged is not None else "was evaluated"
     if is_baseline(name):
         found = f" and found {int(tp)} of {int(core)} planted cases" if tp is not None and core else ""
-        return (f"{name} is a one-line reference rule, not a proposed detector. It {flagged_txt}{found}. "
-                "It is included only to show how a very simple rule compares.")
+        return (
+            f"{name} is a one-line reference rule, not a proposed detector. It {flagged_txt}{found}. "
+            "It is included only to show how a very simple rule compares."
+        )
 
     parts = [f"{name} {flagged_txt}."]
     if tp is not None and core:
-        parts.append(f"Of the {int(core)} planted cases it was graded on, it found {int(tp)}"
-                     + (f" (recall {pct(recall)})." if recall is not None else "."))
+        parts.append(
+            f"Of the {int(core)} planted cases it was graded on, it found {int(tp)}"
+            + (f" (recall {pct(recall)})." if recall is not None else ".")
+        )
     if precision is not None:
         extra = f", roughly 1 in {1 / precision:.1f} flags" if 0 < precision < 0.5 else ""
         parts.append(f"{pct(precision)} of its flags were planted fraud{extra}.")
@@ -298,22 +316,29 @@ def executive_summary(data: dict) -> list:
     ]
     n_unreg = int((~q["in_registry"]).sum())
     if n_unreg:
-        lines.append(f"Flagged IDs that do not exist in the registry at all: {n_unreg:,}. Payments were made "
-                     "against IDs that were never registered.")
+        lines.append(
+            f"Flagged IDs that do not exist in the registry at all: {n_unreg:,}. Payments were made "
+            "against IDs that were never registered."
+        )
 
     validated, _ = split_metrics(data.get("metrics"))
     real = [r for _, r in validated.iterrows() if not is_baseline(r.get("detector"))]
     if real:
-        perfect = [str(r["detector"]) for r in real
-                   if (num(r.get("recall")) or 0) >= 0.99 and (num(r.get("precision")) or 0) >= 0.99]
+        perfect = [
+            str(r["detector"])
+            for r in real
+            if (num(r.get("recall")) or 0) >= 0.99 and (num(r.get("precision")) or 0) >= 0.99
+        ]
         others = [r for r in real if str(r["detector"]) not in perfect]
         lines.append(f"{len(real)} detectors were graded against the planted answer key.")
         if perfect:
             lines.append("Found every planted case with no false alarms: " + ", ".join(perfect) + ".")
         for r in others:
             lines.append(describe_detector(r))
-    lines.append("Perfect scores only cover the fraud patterns planted in this synthetic data. "
-                 "They are not proof the methods would work as well on real data.")
+    lines.append(
+        "Perfect scores only cover the fraud patterns planted in this synthetic data. "
+        "They are not proof the methods would work as well on real data."
+    )
     return lines
 
 
@@ -321,10 +346,14 @@ def queue_takeaway(data: dict) -> str:
     q = data["queue"]
     n = int((q["n_validated_families"] >= 2).sum())
     if n:
-        return (f"{n:,} beneficiaries are flagged by two or more validated kinds of evidence. "
-                "They sit at the top of the queue and should be investigated first.")
-    return ("No beneficiary is flagged by two or more validated kinds of evidence. "
-            "The queue is ranked by how many kinds of evidence, validated ones first.")
+        return (
+            f"{n:,} beneficiaries are flagged by two or more validated kinds of evidence. "
+            "They sit at the top of the queue and should be investigated first."
+        )
+    return (
+        "No beneficiary is flagged by two or more validated kinds of evidence. "
+        "The queue is ranked by how many kinds of evidence, validated ones first."
+    )
 
 
 def why_flagged(signal_types: str) -> str:
@@ -341,8 +370,10 @@ def limitations(data: dict) -> list:
         name = str(r.get("detector")).lower()
         p = num(r.get("precision"))
         if ("isolation" in name or "iforest" in name) and "layer" in name and p:
-            out.append(f"The layered Isolation Forest is right about 1 in {1 / p:.1f} of its flags "
-                       f"(precision {pct(p)}). Its flags are leads to review, not conclusions.")
+            out.append(
+                f"The layered Isolation Forest is right about 1 in {1 / p:.1f} of its flags "
+                f"(precision {pct(p)}). Its flags are leads to review, not conclusions."
+            )
     out += [
         "The anomalies were planted with a clean separator (a beneficiary with seven payments where "
         "normal beneficiaries have at most six). That is why a one-line rule can match Isolation Forest. "

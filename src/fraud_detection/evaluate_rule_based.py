@@ -90,32 +90,20 @@ def evaluate_orphaned_disbursement(
     # Map fake beneficiary_id -> row_id via the disbursements table.
     # 1:1 relationship -- plant_orphan_disbursements creates exactly one
     # disbursement row per ground truth entry.
-    actual_row_ids = set(
-        disbursements.loc[
-            disbursements["beneficiary_id"].isin(gt_orphan["beneficiary_id"]), "row_id"
-        ]
-    )
+    actual_row_ids = set(disbursements.loc[disbursements["beneficiary_id"].isin(gt_orphan["beneficiary_id"]), "row_id"])
 
-    predicted_row_ids = set(
-        signals.loc[signals["signal_type"] == "orphaned_disbursement", "entity_id"]
-    )
+    predicted_row_ids = set(signals.loc[signals["signal_type"] == "orphaned_disbursement", "entity_id"])
 
     return precision_recall_f1(predicted_row_ids, actual_row_ids)
 
 
-def evaluate_shared_account(
-    signals: pd.DataFrame, ground_truth: pd.DataFrame, disbursements: pd.DataFrame
-) -> dict:
+def evaluate_shared_account(signals: pd.DataFrame, ground_truth: pd.DataFrame, disbursements: pd.DataFrame) -> dict:
     gt_shared = ground_truth[ground_truth["fraud_type"] == "shared_account"]
     actual_beneficiary_ids = set(gt_shared["beneficiary_id"])
 
-    flagged_row_ids = set(
-        signals.loc[signals["signal_type"] == "shared_bank_account", "entity_id"]
-    )
+    flagged_row_ids = set(signals.loc[signals["signal_type"] == "shared_bank_account", "entity_id"])
 
-    predicted_beneficiary_ids = set(
-        disbursements.loc[disbursements["row_id"].isin(flagged_row_ids), "beneficiary_id"]
-    )
+    predicted_beneficiary_ids = set(disbursements.loc[disbursements["row_id"].isin(flagged_row_ids), "beneficiary_id"])
 
     result = precision_recall_f1(predicted_beneficiary_ids, actual_beneficiary_ids)
 
@@ -166,9 +154,7 @@ def print_report(name: str, metrics: dict):
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Evaluate rule-based fraud signals against planted ground truth."
-    )
+    parser = argparse.ArgumentParser(description="Evaluate rule-based fraud signals against planted ground truth.")
     parser.add_argument("--ground-truth", type=str, default="data/ground_truth_fraud_ids.csv")
     args = parser.parse_args()
 

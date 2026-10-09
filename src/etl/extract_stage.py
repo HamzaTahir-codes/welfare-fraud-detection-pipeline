@@ -1,10 +1,10 @@
-'''
+"""
 extract_stage.py
 
-This module contains the ExtractStage class, which is responsible 
+This module contains the ExtractStage class, which is responsible
 for extracting data from various sources and preparing it for further processing in the ETL pipeline.
 
-'''
+"""
 
 from posixpath import basename
 
@@ -21,33 +21,45 @@ import datetime as dt
 EXPECTED_COLS_BENEFICIARIES = {
     "core": {"beneficiary_id", "cnic", "full_name"},
     "optional": {
-        "father_or_husband_name", "gender", "date_of_birth",
-        "phone_number", "marital_status", "household_size",
-        "monthly_income_pkr", "address_line", "city", "province",
-        "bank_account_number", "welfare_program", "registration_date",
-        "registration_channel", "status"
-    }
+        "father_or_husband_name",
+        "gender",
+        "date_of_birth",
+        "phone_number",
+        "marital_status",
+        "household_size",
+        "monthly_income_pkr",
+        "address_line",
+        "city",
+        "province",
+        "bank_account_number",
+        "welfare_program",
+        "registration_date",
+        "registration_channel",
+        "status",
+    },
 }
 
 EXPECTED_COLS_DISBURSEMENTS = {
     "core": {"disbursement_id", "beneficiary_id", "amount_pkr"},
     "optional": {
-        "bank_account_number", "disbursement_cycle", "disbursement_date",
-        "payment_method", "branch_or_agent_code", "status"
-    }
+        "bank_account_number",
+        "disbursement_cycle",
+        "disbursement_date",
+        "payment_method",
+        "branch_or_agent_code",
+        "status",
+    },
 }
 
 EXPECTED_COLS_NATIONAL_ID = {
     "core": {"national_id_no", "full_name"},
-    "optional": {
-        "gender", "date_of_birth", "address",
-        "id_issue_date", "id_status", "linked_beneficiary_id"
-    }
+    "optional": {"gender", "date_of_birth", "address", "id_issue_date", "id_status", "linked_beneficiary_id"},
 }
 
 # ============================================================
 # STEP 1: Loaders
 # ============================================================
+
 
 def load_beneficiaries(file_path: str):
     """
@@ -66,7 +78,8 @@ def load_beneficiaries(file_path: str):
     except Exception as e:
         logging.error(f"Error loading beneficiaries data from {file_path}: {e}")
         raise
-    
+
+
 def load_disbursements(file_path: str):
     """
     Load disbursements data from a CSV file.
@@ -84,7 +97,8 @@ def load_disbursements(file_path: str):
     except Exception as e:
         logging.error(f"Error loading disbursements data from {file_path}: {e}")
         raise
-    
+
+
 def load_national_id(file_path: str):
     """
     Load national ID data from a CSV file.
@@ -102,10 +116,12 @@ def load_national_id(file_path: str):
     except Exception as e:
         logging.error(f"Error loading national ID data from {file_path}: {e}")
         raise
-    
+
+
 # ============================================================
 # STEP 2: Schema validation (core vs optional)
 # ============================================================
+
 
 def validate_schema(df: pd.DataFrame, expected_cols: dict, source_name: str):
     """
@@ -118,20 +134,20 @@ def validate_schema(df: pd.DataFrame, expected_cols: dict, source_name: str):
     """
     all_expected_cols = expected_cols["core"] | expected_cols["optional"]
     actual_cols = set(df.columns)
-    
+
     missing_core_cols = expected_cols["core"] - actual_cols
     missing_optional_cols = expected_cols["optional"] - actual_cols
     extra_cols = actual_cols - all_expected_cols
-    has_duplictaes = (len(df.columns) != len(set(df.columns)))
-    
+    has_duplictaes = len(df.columns) != len(set(df.columns))
+
     result = {
-        "is_valid" : len(missing_core_cols) == 0,
-        "missing_core_cols" : missing_core_cols,
-        "missing_optional_cols" : missing_optional_cols,
-        "extra_cols" : extra_cols,
-        "has_duplicates" : has_duplictaes
+        "is_valid": len(missing_core_cols) == 0,
+        "missing_core_cols": missing_core_cols,
+        "missing_optional_cols": missing_optional_cols,
+        "extra_cols": extra_cols,
+        "has_duplicates": has_duplictaes,
     }
-    
+
     if missing_core_cols:
         logging.error(f"{source_name} is missing core columns: {missing_core_cols}")
     if missing_optional_cols:
@@ -140,12 +156,14 @@ def validate_schema(df: pd.DataFrame, expected_cols: dict, source_name: str):
         logging.warning(f"{source_name} has extra columns: {extra_cols}")
     if has_duplictaes:
         logging.error(f"{source_name} has duplicate columns.")
-        
+
     return result
+
 
 # ============================================================
 # STEP 3: Row-count & sanity logging
 # ============================================================
+
 
 def log_basic_stats(df, source_name):
     """
@@ -160,19 +178,17 @@ def log_basic_stats(df, source_name):
     null_counts_per_column = df.isnull().sum().to_dict()
     for key, value in null_counts_per_column.items():
         null_counts_per_column[key] = int(value)  # Convert to int for JSON serialization
-    
+
     logging.info(f"{source_name} - Total rows: {total_rows}, Empty rows: {empty_rows}")
     logging.info(f"{source_name} - Null counts per column: {null_counts_per_column}")
-    
-    return {
-        "total_rows": total_rows,
-        "empty_rows": empty_rows,
-        "null_counts_per_column": null_counts_per_column
-        }
+
+    return {"total_rows": total_rows, "empty_rows": empty_rows, "null_counts_per_column": null_counts_per_column}
+
 
 # ============================================================
 # STEP 4: Raw metadata capture
 # ============================================================
+
 
 def build_metadata(filepath, df, source_name, stats, status="LOADED"):
     """
@@ -189,19 +205,21 @@ def build_metadata(filepath, df, source_name, stats, status="LOADED"):
         "source_name": source_name,
         "file_name": basename(filepath),
         "extraction_timestamp": dt.datetime.now().isoformat(),
-        "status": status,    # LOADED / SKIPPED / MISSING_FILE
+        "status": status,  # LOADED / SKIPPED / MISSING_FILE
         "total_rows": stats["total_rows"],
         "empty_rows": stats["empty_rows"],
-        "column_count" : len(df.columns),
+        "column_count": len(df.columns),
     }
-    
+
     logging.info(f"Metadata for {source_name}: {json.dumps(metadata, indent=2)}")
-    
+
     return metadata
+
 
 # ============================================================
 # STEP 5: Staging write
 # ============================================================
+
 
 def write_to_staging(df, source_name, run_id):
     """
@@ -219,12 +237,14 @@ def write_to_staging(df, source_name, run_id):
     except Exception as e:
         logging.error(f"Error writing {source_name} data to staging at {output_path}: {e}")
         raise
-    
+
     return output_path
+
 
 # ============================================================
 # STEP 6: Orchestrator (hub-and-spoke failure behavior)
 # ============================================================
+
 
 def run_extract():
     """
@@ -233,20 +253,15 @@ def run_extract():
     run_id = dt.datetime.now().strftime("%Y%m%d%H%M%S")
     all_metadata = []
     run_status = "SUCCESS"
-    
+
     # ---------- HUB: beneficiaries ----------
     try:
         df_beneficiaries = load_beneficiaries("data/raw/beneficiaries.csv")
     except FileNotFoundError:
         logging.error("Beneficiaries file not found. Skipping extraction for beneficiaries.")
-        return {
-            "run_id": run_id,
-            "status": "FAILED",
-            "message": "Beneficiaries file not found.",
-            "sources" : []
-        }
+        return {"run_id": run_id, "status": "FAILED", "message": "Beneficiaries file not found.", "sources": []}
     result_beneficiaries = validate_schema(df_beneficiaries, EXPECTED_COLS_BENEFICIARIES, "beneficiaries")
-    
+
     if result_beneficiaries["is_valid"] == False:
         logging.error("Beneficiaries schema validation failed. Skipping extraction for beneficiaries.")
         return {
@@ -254,21 +269,23 @@ def run_extract():
             "status": "FAILED",
             "message": "Beneficiaries schema validation failed.",
             "validation_result": result_beneficiaries,
-            "sources" : []
+            "sources": [],
         }
     stats_beneficiaries = log_basic_stats(df_beneficiaries, "beneficiaries")
-    metadata_beneficiaries = build_metadata("data/raw/beneficiaries.csv", df_beneficiaries, "beneficiaries", stats_beneficiaries)
+    metadata_beneficiaries = build_metadata(
+        "data/raw/beneficiaries.csv", df_beneficiaries, "beneficiaries", stats_beneficiaries
+    )
     write_to_staging(df_beneficiaries, "beneficiaries", run_id)
     all_metadata.append(metadata_beneficiaries)
-    
+
     # ---------- SPOKES: disbursements & national_id ----------
     spokes = [
         ("disbursements", load_disbursements, "data/raw/disbursements.csv", EXPECTED_COLS_DISBURSEMENTS),
-        ("national_id", load_national_id, "data/raw/national_id.csv", EXPECTED_COLS_NATIONAL_ID)
+        ("national_id", load_national_id, "data/raw/national_id.csv", EXPECTED_COLS_NATIONAL_ID),
     ]
-    
-    skipped_sources = [] # Keep track of skipped sources due to errors, for transform to check
-    for (name, loader_func, file_path, expected_cols) in spokes:
+
+    skipped_sources = []  # Keep track of skipped sources due to errors, for transform to check
+    for name, loader_func, file_path, expected_cols in spokes:
         try:
             df = loader_func(file_path)
         except FileNotFoundError:
@@ -277,7 +294,7 @@ def run_extract():
             skipped_sources.append(name)
             run_status = "PARTIAL_SUCCESS"
             continue
-        
+
         result = validate_schema(df, expected_cols, name)
         if result["is_valid"] == False:
             logging.error(f"{name} schema validation failed. Skipping extraction for {name}.")
@@ -285,20 +302,15 @@ def run_extract():
             skipped_sources.append(name)
             run_status = "PARTIAL_SUCCESS"
             continue
-        
+
         stats = log_basic_stats(df, name)
         metadata = build_metadata(file_path, df, name, stats)
         write_to_staging(df, name, run_id)
         all_metadata.append(metadata)
-        
+
     # ---------- Final summary ----------
-    summary = {
-        "run_id": run_id,
-        "status": run_status,
-        "skipped_sources": skipped_sources,
-        "sources": all_metadata
-    }
-    
+    summary = {"run_id": run_id, "status": run_status, "skipped_sources": skipped_sources, "sources": all_metadata}
+
     # open file to write summary to JSON
     summary_file_path = f"data/staging/extract_run_{run_id}_metadata.json"
     try:
@@ -308,9 +320,12 @@ def run_extract():
     except Exception as e:
         logging.error(f"Error writing extraction summary to {summary_file_path}: {e}")
         raise
-    
-    logging.info(f"Extraction run {run_id} completed with status: {run_status}. Metadata written to data/staging/extract_run_{run_id}_metadata.json")
+
+    logging.info(
+        f"Extraction run {run_id} completed with status: {run_status}. Metadata written to data/staging/extract_run_{run_id}_metadata.json"
+    )
     return summary
+
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)

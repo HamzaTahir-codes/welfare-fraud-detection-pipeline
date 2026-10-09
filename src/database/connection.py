@@ -7,12 +7,13 @@ Usage:
 
     conn = get_db_connection()
     # Use the connection to execute queries
-    conn.close()    
+    conn.close()
 """
 
 import psycopg2
 from psycopg2 import OperationalError
 from src.database.config import get_db_config
+
 
 def get_connection():
     """
@@ -22,14 +23,14 @@ def get_connection():
     Raises an OperationalError if the connection fails.
     """
     db_config = get_db_config()
-    
+
     try:
         connection = psycopg2.connect(
             host=db_config["host"],
             port=db_config["port"],
             database=db_config["database"],
             user=db_config["user"],
-            password=db_config["password"]
+            password=db_config["password"],
         )
         return connection
     except OperationalError as e:

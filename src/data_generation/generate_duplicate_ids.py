@@ -70,6 +70,7 @@ Faker.seed(SEED)
 
 # ── PERTURBATION HELPERS ────────────────────────────────────────────────────
 
+
 def perturb_name(name: str) -> str:
     """Introduce a small realistic typo: one character swap, insertion,
     or deletion in a randomly chosen word of the name. Keeps the name
@@ -138,6 +139,7 @@ def fabricate_bank_account() -> str:
 
 
 # ── CORE GENERATION ──────────────────────────────────────────────────────
+
 
 def load_data():
     beneficiaries = pd.read_csv(BENEFICIARIES_PATH)
@@ -226,12 +228,14 @@ def plant_duplicate_identities(beneficiaries, national_id, disbursements, n_pair
             # shared_bank_account rule's false-positive count against ground truth.
             duplicate_disbursement_rows.append(template)
 
-        ground_truth_rows.append({
-            "fraud_type": "duplicate_identity",
-            "original_beneficiary_id": orig_id,
-            "duplicate_beneficiary_id": dup_id,
-            "run_id": run_id,
-        })
+        ground_truth_rows.append(
+            {
+                "fraud_type": "duplicate_identity",
+                "original_beneficiary_id": orig_id,
+                "duplicate_beneficiary_id": dup_id,
+                "run_id": run_id,
+            }
+        )
 
     return (
         pd.DataFrame(duplicate_beneficiary_rows),
@@ -241,8 +245,9 @@ def plant_duplicate_identities(beneficiaries, national_id, disbursements, n_pair
     )
 
 
-def append_and_save(beneficiaries, national_id, disbursements,
-                     dup_beneficiaries, dup_national_id, dup_disbursements, ground_truth_new):
+def append_and_save(
+    beneficiaries, national_id, disbursements, dup_beneficiaries, dup_national_id, dup_disbursements, ground_truth_new
+):
     beneficiaries_out = pd.concat([beneficiaries, dup_beneficiaries], ignore_index=True)
     national_id_out = pd.concat([national_id, dup_national_id], ignore_index=True)
     disbursements_out = pd.concat([disbursements, dup_disbursements], ignore_index=True)
@@ -273,8 +278,13 @@ def main():
     )
 
     protected_ids = append_and_save(
-        beneficiaries, national_id, disbursements,
-        dup_beneficiaries, dup_national_id, dup_disbursements, ground_truth_new,
+        beneficiaries,
+        national_id,
+        disbursements,
+        dup_beneficiaries,
+        dup_national_id,
+        dup_disbursements,
+        ground_truth_new,
     )
 
     print(f"Planted {len(ground_truth_new)} duplicate-identity pairs.")

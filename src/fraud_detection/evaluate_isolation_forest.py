@@ -123,10 +123,13 @@ def evaluate_official(signals: pd.DataFrame, df_ben: pd.DataFrame, keys: dict, s
 
     # Recall denominator = planted anomalies that were actually scoreable (>=1 payment).
     actual = keys["multivariate_anomaly"] & scored_ids
-    print(f"Planted multivariate anomalies: {len(keys['multivariate_anomaly'])} "
-          f"({len(actual)} scoreable, i.e. have at least one payment)")
-    print_report("isolation_forest vs multivariate_anomaly (beneficiary-level)",
-                 precision_recall_f1(flagged_ids, actual))
+    print(
+        f"Planted multivariate anomalies: {len(keys['multivariate_anomaly'])} "
+        f"({len(actual)} scoreable, i.e. have at least one payment)"
+    )
+    print_report(
+        "isolation_forest vs multivariate_anomaly (beneficiary-level)", precision_recall_f1(flagged_ids, actual)
+    )
 
     print("\n[what the flagged set contains]  (flagged: %d)" % len(flagged_ids))
     for label, n in composition(flagged_ids, keys).items():
@@ -148,60 +151,78 @@ def evaluate_sweep_and_ranking(scored: pd.DataFrame, keys: dict):
     actual = mv & set(ids)
 
     print("\n[contamination sweep -- top-k% of scores flagged]")
-    print(f"    {'contam':>7} {'flagged':>8} {'TP':>4} {'prec':>7} {'recall':>7} {'F1':>7} "
-          f"{'| shared':>9} {'dup-id':>7} {'unlabeled':>10}")
+    print(
+        f"    {'contam':>7} {'flagged':>8} {'TP':>4} {'prec':>7} {'recall':>7} {'F1':>7} "
+        f"{'| shared':>9} {'dup-id':>7} {'unlabeled':>10}"
+    )
     for c in SWEEP_CONTAMINATIONS:
         k = int(round(len(scored) * c))
         flagged_ids = set(ids.iloc[:k])
         m = precision_recall_f1(flagged_ids, actual)
         comp = composition(flagged_ids, keys)
-        print(f"    {c:>7.3f} {k:>8d} {m['tp']:>4d} {m['precision']:>7.3f} {m['recall']:>7.3f} {m['f1']:>7.3f} "
-              f"{'| ' + str(comp['shared-account victims']):>9} {comp['duplicate-identity beneficiaries']:>7d} "
-              f"{comp['unlabeled (novel or legitimate-rare)']:>10d}")
+        print(
+            f"    {c:>7.3f} {k:>8d} {m['tp']:>4d} {m['precision']:>7.3f} {m['recall']:>7.3f} {m['f1']:>7.3f} "
+            f"{'| ' + str(comp['shared-account victims']):>9} {comp['duplicate-identity beneficiaries']:>7d} "
+            f"{comp['unlabeled (novel or legitimate-rare)']:>10d}"
+        )
 
     y_all = ids.isin(mv).astype(int)
     print("\n[ranking quality -- independent of any threshold]")
-    print(f"    whole scored population       ROC-AUC={roc_auc_score(y_all, scored['anomaly_score']):.4f}  "
-          f"AP={average_precision_score(y_all, scored['anomaly_score']):.4f}  "
-          f"(random-guess AP = {y_all.mean():.4f})")
+    print(
+        f"    whole scored population       ROC-AUC={roc_auc_score(y_all, scored['anomaly_score']):.4f}  "
+        f"AP={average_precision_score(y_all, scored['anomaly_score']):.4f}  "
+        f"(random-guess AP = {y_all.mean():.4f})"
+    )
 
     clean = scored[~ids.isin(other - mv)]
     y_clean = clean["beneficiary_id"].isin(mv).astype(int)
-    print(f"    planted anomalies vs ordinary  ROC-AUC={roc_auc_score(y_clean, clean['anomaly_score']):.4f}  "
-          f"AP={average_precision_score(y_clean, clean['anomaly_score']):.4f}  "
-          f"(other planted frauds removed; n={len(clean)})")
+    print(
+        f"    planted anomalies vs ordinary  ROC-AUC={roc_auc_score(y_clean, clean['anomaly_score']):.4f}  "
+        f"AP={average_precision_score(y_clean, clean['anomaly_score']):.4f}  "
+        f"(other planted frauds removed; n={len(clean)})"
+    )
 
 
-BASELINE_MAX_PAYMENTS = 6   # simulation window is 6 monthly cycles -> more than 6 payments is impossible normally
+BASELINE_MAX_PAYMENTS = 6  # simulation window is 6 monthly cycles -> more than 6 payments is impossible normally
 TOP_K_LIST = [10, 25, 50, 100]
 
 
 def evaluate_incremental(scored: pd.DataFrame, keys: dict, covered_ids: set):
     mv = keys["multivariate_anomaly"]
-    resid = scored[~scored["beneficiary_id"].isin(covered_ids)].sort_values(
-        "anomaly_score", ascending=False).reset_index(drop=True)
+    resid = (
+        scored[~scored["beneficiary_id"].isin(covered_ids)]
+        .sort_values("anomaly_score", ascending=False)
+        .reset_index(drop=True)
+    )
     y = resid["beneficiary_id"].isin(mv).astype(int)
     n_pos = int(y.sum())
 
     print("\n[incremental value -- beyond what verified Stage 5/6 detectors already cover]")
     if covered_ids:
-        print(f"    Beneficiaries covered by shared_bank_account / fuzzy duplicate: {len(covered_ids & set(scored['beneficiary_id']))}")
+        print(
+            f"    Beneficiaries covered by shared_bank_account / fuzzy duplicate: {len(covered_ids & set(scored['beneficiary_id']))}"
+        )
     print(f"    Residual population: {len(resid)}  (planted anomalies inside it: {n_pos}/{len(mv)})")
     if n_pos == 0 or n_pos == len(resid):
         print("    (not enough positives/negatives to score)")
         return
-    print(f"    ROC-AUC={roc_auc_score(y, resid['anomaly_score']):.4f}  "
-          f"AP={average_precision_score(y, resid['anomaly_score']):.4f}  (random-guess AP = {y.mean():.4f})")
+    print(
+        f"    ROC-AUC={roc_auc_score(y, resid['anomaly_score']):.4f}  "
+        f"AP={average_precision_score(y, resid['anomaly_score']):.4f}  (random-guess AP = {y.mean():.4f})"
+    )
     for k in TOP_K_LIST:
         tp = int(y.iloc[:k].sum())
-        print(f"    top-{k:<4d} of ranking: {tp:>3d} planted anomalies  "
-              f"(precision {tp / k:.2f}, recall {tp / n_pos:.2f})")
+        print(
+            f"    top-{k:<4d} of ranking: {tp:>3d} planted anomalies  (precision {tp / k:.2f}, recall {tp / n_pos:.2f})"
+        )
 
     base_flag = resid["n_payments"] > BASELINE_MAX_PAYMENTS
     tp = int((base_flag & (y == 1)).sum())
     print(f"\n[reference baseline on the same residual population: n_payments > {BASELINE_MAX_PAYMENTS}]")
-    print(f"    flagged={int(base_flag.sum())}  TP={tp}/{n_pos}  "
-          f"precision={tp / max(int(base_flag.sum()), 1):.3f}  recall={tp / n_pos:.3f}")
+    print(
+        f"    flagged={int(base_flag.sum())}  TP={tp}/{n_pos}  "
+        f"precision={tp / max(int(base_flag.sum()), 1):.3f}  recall={tp / n_pos:.3f}"
+    )
     print("    NOTE: the planted pattern gives every anomalous profile exactly 7 payments while no legitimate")
     print("    beneficiary can exceed 6, so a single hard-coded threshold separates them. Isolation Forest is")
     print("    never told that feature or ceiling; the baseline shows what an analyst who already knew where to")
@@ -211,9 +232,12 @@ def evaluate_incremental(scored: pd.DataFrame, keys: dict, covered_ids: set):
 def main():
     parser = argparse.ArgumentParser(description="Evaluate Isolation Forest against planted ground truth.")
     parser.add_argument("--ground-truth", type=str, default="data/ground_truth_fraud_ids.csv")
-    parser.add_argument("--layered", action="store_true",
-                        help="Evaluate a run made with isolation_forest.py --layered (population excludes "
-                             "beneficiaries already flagged by Stage 5/6).")
+    parser.add_argument(
+        "--layered",
+        action="store_true",
+        help="Evaluate a run made with isolation_forest.py --layered (population excludes "
+        "beneficiaries already flagged by Stage 5/6).",
+    )
     args = parser.parse_args()
 
     conn = get_connection()
@@ -242,9 +266,11 @@ def main():
     evaluate_official(signals, df_ben, keys, scored_ids)
     evaluate_sweep_and_ranking(scored, keys)
     evaluate_incremental(scored, keys, set() if args.layered else covered_ids)
-    print("\nNote: sweep/ranking recompute scores with the default seed and hyperparameters; "
-          "if you ran isolation_forest.py with a different --seed/--n-estimators, they will differ slightly "
-          "from the stored run.")
+    print(
+        "\nNote: sweep/ranking recompute scores with the default seed and hyperparameters; "
+        "if you ran isolation_forest.py with a different --seed/--n-estimators, they will differ slightly "
+        "from the stored run."
+    )
 
 
 if __name__ == "__main__":

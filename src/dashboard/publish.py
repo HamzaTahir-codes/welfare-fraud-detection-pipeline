@@ -58,12 +58,15 @@ VALIDATED_SIGNALS = {
     "orphaned_disbursement",
     "shared_bank_account",
     "fuzzy_duplicate_identity",
-    "multivariate_anomaly",   # layered run only
+    "multivariate_anomaly",  # layered run only
 }
 
 KPI_TABLES = [
-    "beneficiaries", "national_id_records", "disbursements",
-    "fraud_signals", "record_linkage_matches",
+    "beneficiaries",
+    "national_id_records",
+    "disbursements",
+    "fraud_signals",
+    "record_linkage_matches",
 ]
 
 BENEFICIARY_DQ_COLS = ["income_flag", "phone_missing", "address_missing", "is_duplicate_row"]
@@ -71,6 +74,7 @@ DISBURSEMENT_DQ_COLS = ["amount_flag", "payment_method_missing", "disb_date_pars
 
 
 # ── 1. RUN IDS ────────────────────────────────────────────────────────────
+
 
 def get_run_ids(conn, if_layered_run_id: str) -> dict:
     """Latest rule_based run + the layered Isolation Forest run you pass in."""
@@ -102,6 +106,7 @@ def get_run_ids(conn, if_layered_run_id: str) -> dict:
 
 
 # ── 2. SIGNALS -> ONE ROW PER (beneficiary, method, signal_type) ─────────
+
 
 def build_signals_long(conn, run_ids: dict) -> pd.DataFrame:
     """Columns: beneficiary_id, method, signal_type, family, score, n_flags."""
@@ -164,14 +169,14 @@ def build_signals_long(conn, run_ids: dict) -> pd.DataFrame:
     # Collapse to one row per (beneficiary, method, signal_type). This also
     # collapses the duplicate rows inject_messiness.py made (same
     # beneficiary_id, different row_id).
-    long_df = (
-        combined.groupby(["beneficiary_id", "method", "signal_type", "family"], as_index=False)
-        .agg(score=("score", "max"), n_flags=("score", "size"))
+    long_df = combined.groupby(["beneficiary_id", "method", "signal_type", "family"], as_index=False).agg(
+        score=("score", "max"), n_flags=("score", "size")
     )
     return long_df
 
 
 # ── 3. THE RANKED QUEUE ──────────────────────────────────────────────────
+
 
 def build_case_queue(signals_long: pd.DataFrame, registry_ids: set) -> pd.DataFrame:
     """One row per beneficiary_id, most suspicious first.
@@ -204,8 +209,7 @@ def build_case_queue(signals_long: pd.DataFrame, registry_ids: set) -> pd.DataFr
     queue["in_registry"] = queue["beneficiary_id"].isin(registry_ids)
 
     validated_families = (
-        df[df["is_validated"]].groupby("beneficiary_id")["family"].nunique()
-        .rename("n_validated_families")
+        df[df["is_validated"]].groupby("beneficiary_id")["family"].nunique().rename("n_validated_families")
     )
     queue = queue.join(validated_families, on="beneficiary_id")
     queue["n_validated_families"] = queue["n_validated_families"].fillna(0).astype(int)
@@ -215,14 +219,25 @@ def build_case_queue(signals_long: pd.DataFrame, registry_ids: set) -> pd.DataFr
         ascending=[False, False, False, True],
     ).reset_index(drop=True)
     queue.insert(0, "rank", range(1, len(queue) + 1))
-    return queue[[
-        "rank", "beneficiary_id", "n_validated_families", "n_families", "families",
-        "methods", "signal_types", "max_score", "has_validated_signal",
-        "total_flags", "in_registry",
-    ]]
+    return queue[
+        [
+            "rank",
+            "beneficiary_id",
+            "n_validated_families",
+            "n_families",
+            "families",
+            "methods",
+            "signal_types",
+            "max_score",
+            "has_validated_signal",
+            "total_flags",
+            "in_registry",
+        ]
+    ]
 
 
 # ── 4. HEADLINE NUMBERS ─────────────────────────────────────────────────
+
 
 def _count_rows(conn, table: str) -> int:
     with conn.cursor() as cur:
@@ -237,9 +252,7 @@ def _flag_rates(conn, table: str, cols: list) -> dict:
 
 def build_kpis(conn, signals_long: pd.DataFrame, case_queue: pd.DataFrame) -> dict:
     by_type = (
-        signals_long.groupby(["method", "signal_type"])["beneficiary_id"]
-        .nunique()
-        .reset_index(name="n_beneficiaries")
+        signals_long.groupby(["method", "signal_type"])["beneficiary_id"].nunique().reset_index(name="n_beneficiaries")
     )
     return {
         "row_counts": {t: _count_rows(conn, t) for t in KPI_TABLES},
@@ -249,14 +262,13 @@ def build_kpis(conn, signals_long: pd.DataFrame, case_queue: pd.DataFrame) -> di
         },
         "signals_by_type": by_type.to_dict("records"),
         "queue_size": int(len(case_queue)),
-        "queue_by_families": {
-            int(k): int(v) for k, v in case_queue["n_families"].value_counts().sort_index().items()
-        },
+        "queue_by_families": {int(k): int(v) for k, v in case_queue["n_families"].value_counts().sort_index().items()},
         "not_in_registry": int((~case_queue["in_registry"]).sum()),
     }
 
 
 # ── 5. SAVE THE SNAPSHOT ────────────────────────────────────────────────
+
 
 def write_snapshot(
     case_queue: pd.DataFrame,
@@ -271,7 +283,7 @@ def write_snapshot(
     atomic: the dashboard sees either the old snapshot or the new one, never a
     half-written run. Same "fixed-name latest" idea as Stage 3.
     """
-    now = datetime.now(timezone.utc)   # same clock on your Mac and in the Airflow container
+    now = datetime.now(timezone.utc)  # same clock on your Mac and in the Airflow container
     snapshot_id = now.strftime("%Y%m%d%H%M%S")
     snapshot_dir = SNAPSHOT_ROOT / snapshot_id
     snapshot_dir.mkdir(parents=True, exist_ok=False)
@@ -301,11 +313,16 @@ def write_snapshot(
 
     # Pointer LAST, atomically.
     tmp = SNAPSHOT_ROOT / "latest.json.tmp"
-    tmp.write_text(json.dumps({
-        "snapshot_id": snapshot_id,
-        "path": snapshot_id,
-        "published_at": now.isoformat(),
-    }, indent=2))
+    tmp.write_text(
+        json.dumps(
+            {
+                "snapshot_id": snapshot_id,
+                "path": snapshot_id,
+                "published_at": now.isoformat(),
+            },
+            indent=2,
+        )
+    )
     os.replace(tmp, SNAPSHOT_ROOT / "latest.json")
 
     # Read it back: proves the pointer really moved (this shows up in the Airflow task log).
@@ -319,23 +336,19 @@ def write_snapshot(
 
 # ── MAIN ─────────────────────────────────────────────────────────────────
 
+
 def main():
     parser = argparse.ArgumentParser(description="Build the dashboard snapshot (Stage 10a).")
-    parser.add_argument("--if-layered-run-id", required=True,
-                        help="run_id of the layered Isolation Forest run.")
-    parser.add_argument("--dag-run-id", default=None,
-                        help="Airflow run id, recorded in the manifest.")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Build and print the queue without writing a snapshot.")
+    parser.add_argument("--if-layered-run-id", required=True, help="run_id of the layered Isolation Forest run.")
+    parser.add_argument("--dag-run-id", default=None, help="Airflow run id, recorded in the manifest.")
+    parser.add_argument("--dry-run", action="store_true", help="Build and print the queue without writing a snapshot.")
     args = parser.parse_args()
 
     conn = get_connection()
     try:
         run_ids = get_run_ids(conn, args.if_layered_run_id)
         signals_long = build_signals_long(conn, run_ids)
-        registry_ids = set(
-            pd.read_sql("SELECT DISTINCT beneficiary_id FROM beneficiaries", conn)["beneficiary_id"]
-        )
+        registry_ids = set(pd.read_sql("SELECT DISTINCT beneficiary_id FROM beneficiaries", conn)["beneficiary_id"])
         case_queue = build_case_queue(signals_long, registry_ids)
         kpis = build_kpis(conn, signals_long, case_queue)
     finally:
@@ -360,6 +373,7 @@ def main():
     # never invalidate a good snapshot, so it only warns (the app can rebuild it on demand).
     try:
         from src.dashboard.report import build_report
+
         report_path = build_report(snapshot_dir)
         print(f"[publish] Report written to {report_path}")
     except Exception as exc:  # noqa: BLE001

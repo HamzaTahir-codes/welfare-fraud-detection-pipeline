@@ -105,6 +105,7 @@ random.seed(SEED)
 
 # ── HELPERS ──────────────────────────────────────────────────────────────
 
+
 def next_id_generator(existing_ids: pd.Series):
     """Yields new sequential IDs continuing after the current max, in the
     SAME format as the existing ones. Identical logic to the helper in
@@ -155,6 +156,7 @@ def make_disbursement_row(disb_id, beneficiary_id, bank_account, cycle) -> dict:
 
 # ── DATA LOADING ─────────────────────────────────────────────────────────
 
+
 def load_data():
     beneficiaries = pd.read_csv(BENEFICIARIES_PATH)
     disbursements = pd.read_csv(DISBURSEMENTS_PATH)
@@ -178,6 +180,7 @@ def load_already_implicated_ids(gt_path: Path) -> set:
 
 
 # ── CORE GENERATION ──────────────────────────────────────────────────────
+
 
 def select_candidates(beneficiaries: pd.DataFrame, excluded_ids: set, n: int) -> pd.DataFrame:
     eligible = beneficiaries[
@@ -232,11 +235,13 @@ def plant_anomalous_profiles(beneficiaries: pd.DataFrame, disbursements: pd.Data
             bump_idx = random.sample(list(existing.index), k=min(2, len(existing.index)))
             amount_bump_index.extend(bump_idx)
 
-        ground_truth_rows.append({
-            "fraud_type": "multivariate_anomaly",
-            "beneficiary_id": bid,
-            "run_id": run_id,
-        })
+        ground_truth_rows.append(
+            {
+                "fraud_type": "multivariate_anomaly",
+                "beneficiary_id": bid,
+                "run_id": run_id,
+            }
+        )
 
     disbursements = disbursements.copy()
     if amount_bump_index:
@@ -277,12 +282,16 @@ def main():
 
     print(f"Planted {len(ground_truth_new)} multivariate-anomaly beneficiary profiles.")
     print(f"New/adjusted disbursement rows added: {len(disbursements_out) - len(disbursements)}")
-    print(f"Protected beneficiary_ids (already covered by inject_messiness.py's "
-          f"row-duplication protection): {len(protected_ids)}")
-    print("\nNOTE: inject_messiness.py's missing-value/outlier-forcing steps still apply "
-          "to the whole disbursements table regardless of protected_ids (same known gap "
-          "as generate_duplicate_identities.py). Small chance a planted row gets nulled "
-          "by random outlier-forcing during Stage 3 cleaning -- see module docstring.")
+    print(
+        f"Protected beneficiary_ids (already covered by inject_messiness.py's "
+        f"row-duplication protection): {len(protected_ids)}"
+    )
+    print(
+        "\nNOTE: inject_messiness.py's missing-value/outlier-forcing steps still apply "
+        "to the whole disbursements table regardless of protected_ids (same known gap "
+        "as generate_duplicate_identities.py). Small chance a planted row gets nulled "
+        "by random outlier-forcing during Stage 3 cleaning -- see module docstring."
+    )
 
 
 if __name__ == "__main__":
