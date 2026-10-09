@@ -19,7 +19,6 @@ Output:
 """
 
 import argparse
-import base64
 import html
 import json
 import os
@@ -83,6 +82,39 @@ def df_html(df: pd.DataFrame) -> str:
     return df.to_html(index=False, border=0, na_rep="–", escape=True, float_format=lambda x: f"{x:.3f}")
 
 
+def table_html(df: pd.DataFrame, columns: dict = None) -> str:
+    """df as an HTML table under the dashboard's display names (ins.display_frame).
+
+    Shares are shown as percentages and counts as whole numbers, like the
+    dashboard tables; the frame passed in is not modified."""
+    shown = df.copy()
+    for c in shown.columns:
+        if c in ins.PERCENT_COLUMNS:
+            shown[c] = shown[c].map(lambda v: "–" if ins.num(v) is None else ins.pct(v, 1))
+        elif c in ins.COUNT_COLUMNS:
+            shown[c] = shown[c].map(lambda v: "–" if ins.num(v) is None else f"{int(ins.num(v)):,}")
+    return df_html(ins.display_frame(shown, columns))
+
+
+def heat_table(matrix: pd.DataFrame) -> str:
+    """A 0-1 matrix as a table whose cells are shaded by value and shown as percentages."""
+    shown = ins.display_frame(matrix.apply(pd.to_numeric, errors="coerce"))
+    head = f"<th>{e(shown.index.name or '')}</th>" + "".join(f"<th>{e(c)}</th>" for c in shown.columns)
+    rows = []
+    for name, values in shown.iterrows():
+        cells = []
+        for v in values:
+            v = ins.num(v)
+            if v is None:
+                cells.append("<td>–</td>")
+                continue
+            shade = max(0.0, min(1.0, v))
+            colour = "#fff" if shade > 0.6 else "#111827"
+            cells.append(f'<td style="background:rgba(29,78,216,{shade:.2f});color:{colour}">{ins.pct(v)}</td>')
+        rows.append(f"<tr><th>{e(name)}</th>{''.join(cells)}</tr>")
+    return f"<table><tr>{head}</tr>{''.join(rows)}</table>"
+
+
 def section(num: int, title: str, inner: str) -> str:
     return f"<h2>{num}. {e(title)}</h2>{inner}"
 
@@ -131,16 +163,16 @@ def s_data(data) -> str:
                     "table": table,
                     "flag": flag,
                     "meaning": ins.DQ_FLAG_EXPLANATIONS.get(flag, ""),
-                    "share of rows": f"{rate * 100:.1f}%",
+                    "share_of_rows": rate,
                 }
             )
     inner = (
         "<p>These are the tables in the database when this snapshot was built. Row counts include exact "
         "duplicate rows that were created on purpose as data-quality noise.</p>"
-        + df_html(counts)
+        + table_html(counts)
         + "<h3>Data quality</h3><p>The source data is deliberately messy, like real government data. The pipeline "
         "flags problems in separate columns and never deletes rows, because a suspicious row may be the fraud "
-        "we are looking for.</p>" + df_html(pd.DataFrame(rows))
+        "we are looking for.</p>" + table_html(pd.DataFrame(rows))
     )
     return section(3, "The data", inner)
 
@@ -154,10 +186,9 @@ def s_methods(data) -> str:
             found_html = "<p class='small'>No flags from this method in this snapshot.</p>"
         else:
             found = found.assign(
-                signal=found["signal_type"],
                 validated=found["signal_type"].isin(ins.VALIDATED_SIGNALS).map({True: "yes", False: "no"}),
-            )[["signal", "n_beneficiaries", "validated"]]
-            found_html = "<p><b>What it flagged in this run</b></p>" + df_html(found)
+            )[["signal_type", "n_beneficiaries", "validated"]]
+            found_html = "<p><b>What it flagged in this run</b></p>" + table_html(found)
         blocks.append(
             f'<div class="method"><h3>{e(m["name"])}</h3>'
             f"<p><b>What it does.</b> {e(m['what'])}</p>"
@@ -186,8 +217,8 @@ def s_results(data) -> str:
             f1 = ins.num(r.get("f1"))
             rows.append(
                 "<tr>"
-                f"<td>{e(r.get('detector'))}</td>"
-                f"<td>{e(r.get('target', ''))}</td>"
+                f"<td>{e(ins.label(r.get('detector'), ins.METHOD_LABELS))}</td>"
+                f"<td>{e(ins.label(r.get('target', ''), ins.PATTERN_LABELS))}</td>"
                 f"<td>{'' if nf is None else f'{int(nf):,}'}</td>"
                 f"<td>{e(found)}</td>"
                 f"<td>{bar(r.get('precision'))}</td>"
@@ -209,25 +240,21 @@ def s_results(data) -> str:
         parts.append(
             "<h3>Heuristic rules (no answer key, so no precision or recall)</h3>"
             "<p>These rules are useful leads, but nothing planted lets us grade them. "
-            "'any_fraud_precision' is the share of their flags that happen to belong to any planted pattern.</p>"
-            + df_html(heuristic[cols])
+            f"'{e(ins.label('any_fraud_precision', ins.METRIC_COLUMN_LABELS))}' is the share of their flags that "
+            "happen to belong to any planted pattern.</p>" + table_html(heuristic[cols], ins.METRIC_COLUMN_LABELS)
         )
 
-    if data.get("heatmap_png"):
-        b64 = base64.b64encode(Path(data["heatmap_png"]).read_bytes()).decode()
-        parts.append(
-            "<h3>Which method catches which planted pattern</h3>"
-            "<p>Each cell is the share of that planted pattern the method found. A bright cell means "
-            "the method is good at that pattern; a dark cell means it misses it.</p>"
-            f'<img alt="coverage heatmap" src="data:image/png;base64,{b64}">'
-        )
-    elif data.get("coverage") is not None:
+    # A shaded table rather than the pipeline's heatmap PNG, whose axes carry the internal names.
+    if data.get("coverage") is not None:
         parts.append(
             "<h3>Which method catches which planted pattern (recall)</h3>"
-            + data["coverage"].to_html(border=0, na_rep="–", float_format=lambda x: f"{x:.2f}")
+            "<p>Each cell is the share of that planted pattern the method found. A dark cell means "
+            "the method is good at that pattern; a light cell means it misses it.</p>" + heat_table(data["coverage"])
         )
 
-    cols_doc = "".join(f"<li><b>{e(c)}</b>: {e(d)}</li>" for c, d in ins.METRIC_COLUMNS.items())
+    cols_doc = "".join(
+        f"<li><b>{e(ins.label(c, ins.METRIC_COLUMN_LABELS))}</b>: {e(d)}</li>" for c, d in ins.METRIC_COLUMNS.items()
+    )
     parts.append(f"<h3>What the metric names mean</h3><ul>{cols_doc}</ul>")
     return section(5, "How well did each method do?", "".join(parts))
 
@@ -244,7 +271,9 @@ def s_queue(data) -> str:
             f"<td>{e(ins.why_flagged(r['signal_types']))}</td><td>{e(reg)}</td>"
             "</tr>"
         )
-    fam = "".join(f"<li><b>{e(f)}</b>: {e(d)}</li>" for f, d in ins.FAMILY_EXPLANATIONS.items())
+    fam = "".join(
+        f"<li><b>{e(ins.label(f, ins.FAMILY_LABELS))}</b>: {e(d)}</li>" for f, d in ins.FAMILY_EXPLANATIONS.items()
+    )
     inner = (
         f'<div class="callout">{e(ins.queue_takeaway(data))}</div>'
         "<p>Every flagged beneficiary appears once. Signals that tend to fire for the same reason are grouped "
@@ -272,10 +301,11 @@ def s_glossary() -> str:
 
 def s_appendix(data) -> str:
     m = data["manifest"]
+    # The one deliberately technical section: the raw run manifest, internal names included.
     return (
-        "<h2>Appendix: run details</h2>"
+        "<section class='technical'><h2>Appendix: run details (technical)</h2>"
         "<p class='small'>Identifies exactly which pipeline run produced this report.</p>"
-        f"<pre class='small'>{e(json.dumps(m, indent=2, default=str))}</pre>"
+        f"<pre class='small'>{e(json.dumps(m, indent=2, default=str))}</pre></section>"
     )
 
 

@@ -16,8 +16,8 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-airflow.txt
       - name: Install dependencies
-        # The unit tests only need the pipeline's core libraries, not the full local freeze.
-        run: pip install -r requirements-airflow.txt psycopg2-binary pytest ruff
+        # The pipeline's core libraries plus the dashboard's (pinned as in requirements.txt) for the AppTest page tests.
+        run: pip install -r requirements-airflow.txt psycopg2-binary streamlit==1.62.0 plotly==7.0.0 pytest ruff
       - name: Lint
         run: ruff check .
       - name: Format

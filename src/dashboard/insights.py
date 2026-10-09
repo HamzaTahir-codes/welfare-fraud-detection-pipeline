@@ -242,6 +242,250 @@ METRIC_COLUMNS = {
     "overall_core_recall": "Share of all planted culprits across every pattern that this method found.",
 }
 
+# ── DISPLAY NAMES ────────────────────────────────────────────────────────
+# The one place that turns internal names into what an investigator reads.
+# Applied only when something is shown: the snapshot CSVs, the downloads and
+# every computation keep the raw names. Unknown names are shown unchanged.
+
+COLUMN_LABELS = {
+    # comparison_detector_metrics.csv
+    "detector": "Detector",
+    "family": "Evidence family",
+    "level": "Graded as",
+    "has_ground_truth": "Has answer key",
+    "target": "Planted pattern targeted",
+    "n_flagged": "Beneficiaries flagged",
+    "tp_core": "Planted cases found",
+    "core_size": "Planted cases",
+    "precision": "Precision",
+    "recall": "Recall",
+    "f1": "F1 score",
+    "precision_strict": "Strict precision",
+    "any_fraud_precision": "Flags that are any planted fraud",
+    "overall_core_recall": "Share of all planted fraud found",
+    # case_queue.csv
+    "rank": "Rank",
+    "beneficiary_id": "Beneficiary ID",
+    "n_validated_families": "Validated families",
+    "n_families": "Total families",
+    "families": "Evidence families",
+    "methods": "Methods",
+    "signal_types": "Signals",
+    "evidence_score": "Evidence score",
+    "max_score": "Highest score",
+    "has_validated_signal": "Has a validated signal",
+    "total_flags": "Total flags",
+    "in_registry": "In registry",
+    "why_flagged": "Why flagged",
+    # signals_long.csv and kpis.json
+    "method": "Method",
+    "signal_type": "Signal",
+    "score": "Score",
+    "n_flags": "Flags",
+    "n_beneficiaries": "Beneficiaries flagged",
+    # comparison coverage / unique catches / overlap
+    "planted_pattern": "Planted pattern",
+    "core_caught": "Planted cases caught",
+    "caught_by_this_method_only": "Caught by this method only",
+    "core_total": "Planted cases in total",
+    # report tables built from kpis.json
+    "table": "Table",
+    "rows": "Rows",
+    "flag": "Data-quality check",
+    "meaning": "Meaning",
+    "share_of_rows": "Share of rows",
+    "validated": "Validated",
+}
+
+# Header for a named row index. The coverage and overlap matrices are read with
+# index_col=0, so their first CSV header becomes the index name. The overlap
+# file's first header is "jaccard", but its rows are methods.
+INDEX_LABELS = {
+    "jaccard": "Method",
+    "planted_pattern": "Planted pattern",
+}
+
+# In the metrics table "family" is the kind of method, not the kind of evidence.
+METRIC_COLUMN_LABELS = {**COLUMN_LABELS, "family": "Method type"}
+
+METHOD_LABELS = {
+    # method keys in signals_long.csv / case_queue.csv
+    "rule_based": "Rule-based checks",
+    "fuzzy_linkage": "Fuzzy record linkage",
+    "isolation_forest": "Isolation Forest",
+    # method types in comparison_detector_metrics.csv
+    "fuzzy": "Fuzzy record linkage",
+    "baseline": "Baseline",
+    "ensemble": "Combined methods",
+    # single detectors (graded one signal at a time)
+    "rule:orphaned_disbursement": "Rule: orphaned payment",
+    "rule:shared_bank_account": "Rule: shared bank account",
+    "rule:duplicate_cnic_multiple_identities": "Rule: same CNIC, several IDs",
+    "rule:cnic_mismatch": "Rule: CNIC mismatch",
+    "rule:duplicate_cycle_payment": "Rule: paid twice in one cycle",
+    "rule:payment_to_inactive_beneficiary": "Rule: payment to inactive beneficiary",
+    "fuzzy:duplicate_identity": "Fuzzy matching: duplicate identity",
+    "iforest:standard": "Isolation Forest (standard)",
+    "iforest:layered": "Isolation Forest (layered)",
+    "baseline:payment_count_gt_6": "Baseline: more than 6 payments",
+    # whole methods (comparison tables). The ", whole method" suffix keeps each
+    # apart from the single detector of the same name in the same table.
+    "METHOD rule_based (validated 2)": "Rule-based checks (2 validated rules), whole method",
+    "METHOD rule_based (all 6)": "Rule-based checks (all 6 rules), whole method",
+    "METHOD fuzzy linkage": "Fuzzy record linkage, whole method",
+    "METHOD isolation_forest (standard)": "Isolation Forest (standard), whole method",
+    "METHOD isolation_forest (layered)": "Isolation Forest (layered), whole method",
+    "METHOD ENSEMBLE (rules2 + fuzzy + IF)": "Combined (2 validated rules + fuzzy + Isolation Forest), whole method",
+}
+
+SIGNAL_LABELS = {
+    "shared_bank_account": "Shared bank account",
+    "orphaned_disbursement": "Orphaned payment (ID not registered)",
+    "fuzzy_duplicate_identity": "Possible duplicate identity",
+    "multivariate_anomaly": "Unusual payment profile",
+    "cnic_mismatch": "CNIC mismatch",
+    "duplicate_cycle_payment": "Paid twice in one cycle",
+    "payment_to_inactive_beneficiary": "Payment to inactive beneficiary",
+    "duplicate_cnic_multiple_identities": "Same CNIC, several IDs",
+}
+
+PATTERN_LABELS = {
+    "orphan_disbursement": "Orphaned payments",
+    "shared_account": "Shared bank accounts",
+    "duplicate_identity": "Duplicate identities",
+    "multivariate_anomaly": "Unusual payment profiles",
+    "-": "None (no answer key)",
+}
+
+FAMILY_LABELS = {
+    "identity": "Identity",
+    "payment_channel": "Payment channel",
+    "existence": "Existence",
+    "eligibility": "Eligibility",
+    "statistical": "Statistical",
+}
+
+LEVEL_LABELS = {"signal": "Single signal", "method": "Whole method"}
+
+TABLE_LABELS = {
+    "beneficiaries": "Beneficiaries",
+    "national_id_records": "National ID records",
+    "disbursements": "Payments",
+    "fraud_signals": "Fraud signals",
+    "record_linkage_matches": "Record-linkage matches",
+}
+
+DQ_FLAG_LABELS = {
+    "income_flag": "Income problem",
+    "phone_missing": "Phone missing",
+    "address_missing": "Address missing",
+    "is_duplicate_row": "Duplicate row",
+    "amount_flag": "Amount problem",
+    "payment_method_missing": "Payment method missing",
+    "disb_date_parse_failed": "Payment date unreadable",
+}
+
+# Which value mapping applies to which column. "multivariate_anomaly" is both a
+# signal and a planted pattern, so each column looks in its own dictionary.
+VALUE_LABELS = {
+    "detector": METHOD_LABELS,
+    "method": METHOD_LABELS,
+    "methods": METHOD_LABELS,
+    "jaccard": METHOD_LABELS,  # row index of the overlap matrix (see INDEX_LABELS)
+    "signal_type": SIGNAL_LABELS,
+    "signal_types": SIGNAL_LABELS,
+    "family": {**FAMILY_LABELS, **METHOD_LABELS},
+    "families": FAMILY_LABELS,
+    "target": PATTERN_LABELS,
+    "planted_pattern": PATTERN_LABELS,
+    "level": LEVEL_LABELS,
+    "table": TABLE_LABELS,
+    "flag": DQ_FLAG_LABELS,
+}
+
+# Columns holding a 0-1 share, shown as a percentage. Jaccard overlap is a
+# similarity score, not a share, so it is left as a decimal.
+PERCENT_COLUMNS = {
+    "precision",
+    "recall",
+    "f1",
+    "precision_strict",
+    "any_fraud_precision",
+    "overall_core_recall",
+    "share_of_rows",
+}
+
+# Columns of whole-number counts (shown without decimals even when stored as floats).
+COUNT_COLUMNS = {
+    "n_flagged",
+    "tp_core",
+    "core_size",
+    "rank",
+    "n_validated_families",
+    "n_families",
+    "total_flags",
+    "n_flags",
+    "n_beneficiaries",
+    "core_caught",
+    "caught_by_this_method_only",
+    "core_total",
+}
+
+
+# Headers for the "Weight each signal gets in the ranking" table (kpis.json ranking_weights).
+WEIGHT_COLUMN_LABELS = {
+    "signal_type": "Signal",
+    "detector": "Detector",
+    "source": "Weight source",
+    "column": "Precision reading",
+    "n_flagged": "Flagged",
+    "precision": "Measured precision",
+    "weight": "Weight in ranking",
+}
+
+
+def label(name, mapping: Optional[dict] = None) -> str:
+    """Display name for one internal name. Without a mapping, every known name is tried."""
+    key = str(name).strip()
+    if mapping is not None:
+        return mapping.get(key, key)
+    for m in (COLUMN_LABELS, METHOD_LABELS, SIGNAL_LABELS, PATTERN_LABELS, FAMILY_LABELS, TABLE_LABELS):
+        if key in m:
+            return m[key]
+    return DQ_FLAG_LABELS.get(key, key)
+
+
+def label_list(names, mapping: dict) -> str:
+    """Relabel a comma-separated cell such as "fuzzy_linkage, rule_based"."""
+    if names is None or (isinstance(names, float) and names != names):
+        return ""
+    return ", ".join(label(n, mapping) for n in str(names).split(",") if n.strip())
+
+
+def display_frame(df: pd.DataFrame, columns: Optional[dict] = None) -> pd.DataFrame:
+    """Copy of df with readable values and column headers. Numbers are left untouched.
+
+    columns: the header mapping to use (COLUMN_LABELS by default). A named index
+    (as in the coverage and overlap matrices) gets its values relabelled and its
+    name taken from INDEX_LABELS."""
+    columns = columns or COLUMN_LABELS
+    out = df.copy()
+    for col in out.columns:
+        mapping = VALUE_LABELS.get(col)
+        if mapping is None or pd.api.types.is_numeric_dtype(out[col]):
+            continue
+        if col in ("methods", "signal_types", "families"):
+            out[col] = out[col].map(lambda s, m=mapping: label_list(s, m))
+        else:
+            out[col] = out[col].map(lambda s, m=mapping: s if pd.isna(s) else label(s, m))
+    if out.index.name in VALUE_LABELS:
+        out.index = out.index.map(lambda s: label(s, VALUE_LABELS[out.index.name]))
+    if out.index.name is not None:
+        out.index.name = INDEX_LABELS.get(out.index.name, columns.get(out.index.name, out.index.name))
+    out.columns = [columns.get(c, label(c, METHOD_LABELS)) for c in out.columns]
+    return out
+
+
 BAG_ANALOGY = (
     "Think of airport security checking bags. Precision asks: of all the bags the officers pulled "
     "aside, how many really contained something? Recall asks: of all the bags that really contained "
@@ -276,7 +520,8 @@ GLOSSARY = {
 
 def describe_detector(row: pd.Series) -> str:
     """One plain-language sentence group for one row of the metrics table."""
-    name = str(row.get("detector"))
+    raw = str(row.get("detector"))
+    name = label(raw, METHOD_LABELS)
     n_flagged = num(row.get("n_flagged"))
     tp = num(row.get("tp_core"))
     core = num(row.get("core_size"))
@@ -284,7 +529,7 @@ def describe_detector(row: pd.Series) -> str:
     recall = num(row.get("recall"))
 
     flagged_txt = f"flagged {int(n_flagged):,} beneficiaries" if n_flagged is not None else "was evaluated"
-    if is_baseline(name):
+    if is_baseline(raw):
         found = f" and found {int(tp)} of {int(core)} planted cases" if tp is not None and core else ""
         return (
             f"{name} is a one-line reference rule, not a proposed detector. It {flagged_txt}{found}. "
@@ -331,7 +576,11 @@ def executive_summary(data: dict) -> list:
         others = [r for r in real if str(r["detector"]) not in perfect]
         lines.append(f"{len(real)} detectors were graded against the planted answer key.")
         if perfect:
-            lines.append("Found every planted case with no false alarms: " + ", ".join(perfect) + ".")
+            lines.append(
+                "Found every planted case with no false alarms: "
+                + ", ".join(label(p, METHOD_LABELS) for p in perfect)
+                + "."
+            )
         for r in others:
             lines.append(describe_detector(r))
     lines.append(

@@ -22,3 +22,4 @@ data/dashboard/*
 data/isolation_forest_scores*.csv
 .claude/settings.local.json
 CLAUDE.local.md
+.claude/worktrees/

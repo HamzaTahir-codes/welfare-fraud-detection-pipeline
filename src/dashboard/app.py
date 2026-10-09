@@ -18,6 +18,7 @@ Needs:  pip install streamlit plotly pandas
 import json
 import sys
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import plotly.express as px
@@ -65,6 +66,33 @@ def explain(title: str, lines, expanded: bool = True):
     with st.expander(title, expanded=expanded):
         for line in lines:
             st.write(line)
+
+
+# ── DISPLAY HELPERS ──────────────────────────────────────────────────────
+# Names come from the shared mapping in insights.py; these only format. The
+# data passed in is never modified, so downloads keep the raw snapshot schema.
+
+
+def show_table(df: pd.DataFrame, columns: Optional[dict] = None, column_config: Optional[dict] = None, **kwargs):
+    """st.dataframe with readable headers and values, shares as percentages and counts as whole numbers."""
+    columns = columns or ins.COLUMN_LABELS
+    config = {}
+    for c in df.columns:
+        name = columns.get(c, c)
+        if c in ins.PERCENT_COLUMNS:
+            config[name] = st.column_config.NumberColumn(name, format="percent", help=ins.METRIC_COLUMNS.get(c))
+        elif c in ins.COUNT_COLUMNS:
+            config[name] = st.column_config.NumberColumn(name, format="%d", help=ins.METRIC_COLUMNS.get(c))
+    config.update(column_config or {})
+    st.dataframe(ins.display_frame(df, columns), column_config=config, **kwargs)
+
+
+def whole_number_axis(fig, axis: str, max_value):
+    """Count axes: no 0.5 ticks. Small ranges get a tick on every integer."""
+    update = fig.update_xaxes if axis == "x" else fig.update_yaxes
+    update(tickformat=",d", rangemode="tozero")
+    if max_value is not None and max_value <= 10:
+        update(dtick=1)
 
 
 # ── PAGE 0: START HERE ───────────────────────────────────────────────────
@@ -137,7 +165,7 @@ def page_overview(data: dict, snapshot_id: str):
     st.caption("Counts include exact duplicate rows that were created on purpose as data-quality noise.")
     cols = st.columns(len(k["row_counts"]))
     for col, (table, n) in zip(cols, k["row_counts"].items()):
-        col.metric(table.replace("_", " "), f"{n:,}")
+        col.metric(ins.label(table, ins.TABLE_LABELS), f"{n:,}")
 
     left, right = st.columns(2)
     with left:
@@ -145,33 +173,53 @@ def page_overview(data: dict, snapshot_id: str):
         st.caption(
             "The source data is deliberately messy, like real government data. Problems are flagged, never deleted."
         )
-        rows = [{"table": t, "flag": f, "rate": v} for t, flags in k["dq_flag_rates"].items() for f, v in flags.items()]
+        rows = [
+            {"table": ins.label(t, ins.TABLE_LABELS), "flag": ins.label(f, ins.DQ_FLAG_LABELS), "rate": v}
+            for t, flags in k["dq_flag_rates"].items()
+            for f, v in flags.items()
+        ]
         fig = px.bar(
-            pd.DataFrame(rows), x="rate", y="flag", color="table", orientation="h", barmode="group", text_auto=".1%"
+            pd.DataFrame(rows),
+            x="rate",
+            y="flag",
+            color="table",
+            orientation="h",
+            barmode="group",
+            text_auto=".1%",
+            labels={"rate": "Share of rows flagged", "flag": "Data-quality check", "table": "Table"},
         )
         fig.update_xaxes(tickformat=".0%")
         st.plotly_chart(fig)
         with st.expander("What each flag means"):
             for flag, meaning in ins.DQ_FLAG_EXPLANATIONS.items():
-                st.markdown(f"- **{flag}**: {meaning}")
+                st.markdown(f"- **{ins.label(flag, ins.DQ_FLAG_LABELS)}**: {meaning}")
     with right:
         st.subheader("Beneficiaries flagged, by signal")
         st.caption(
             "Each bar is the number of distinct beneficiaries one signal flagged. The same person can appear in several bars."
         )
-        sig = pd.DataFrame(k["signals_by_type"])
-        fig = px.bar(sig, x="n_beneficiaries", y="signal_type", color="method", orientation="h")
+        sig = ins.display_frame(pd.DataFrame(k["signals_by_type"]))
+        fig = px.bar(
+            sig,
+            x=ins.label("n_beneficiaries"),
+            y=ins.label("signal_type"),
+            color=ins.label("method"),
+            orientation="h",
+        )
+        whole_number_axis(fig, "x", sig[ins.label("n_beneficiaries")].max())
         st.plotly_chart(fig)
 
     st.subheader("How many kinds of evidence flag each beneficiary?")
     st.caption("One kind of evidence is a weak lead. Two or more independent kinds is much stronger.")
     fam = pd.DataFrame(
         {
-            "kinds of evidence": list(k["queue_by_families"].keys()),
-            "beneficiaries": list(k["queue_by_families"].values()),
+            "Kinds of evidence": [int(n) for n in k["queue_by_families"].keys()],
+            "Beneficiaries": list(k["queue_by_families"].values()),
         }
     )
-    fig = px.bar(fam, x="kinds of evidence", y="beneficiaries", text_auto=True)
+    fig = px.bar(fam, x="Kinds of evidence", y="Beneficiaries", text_auto=",d")
+    whole_number_axis(fig, "x", fam["Kinds of evidence"].max())
+    whole_number_axis(fig, "y", fam["Beneficiaries"].max())
     st.plotly_chart(fig)
 
 
@@ -200,7 +248,7 @@ def page_comparison(data: dict, snapshot_id: str):
     validated, heuristic = ins.split_metrics(metrics)
 
     st.subheader("Graded against the planted answer key")
-    st.dataframe(
+    show_table(
         _pick(
             validated,
             [
@@ -219,23 +267,35 @@ def page_comparison(data: dict, snapshot_id: str):
                 "overall_core_recall",
             ],
         ),
+        columns=ins.METRIC_COLUMN_LABELS,
         hide_index=True,
     )
     with st.expander("What each column means"):
         for col, meaning in ins.METRIC_COLUMNS.items():
-            st.markdown(f"- **{col}**: {meaning}")
+            st.markdown(f"- **{ins.label(col, ins.METRIC_COLUMN_LABELS)}**: {meaning}")
 
     if {"precision", "recall", "f1"} <= set(validated.columns) and not validated.empty:
         plot = validated.copy()
-        label = plot["detector"].astype(str)
+        label = plot["detector"].map(lambda d: ins.label(d, ins.METHOD_LABELS))
         if "target" in plot.columns:
-            label = label + " / " + plot["target"].astype(str)
+            label = label + " (" + plot["target"].map(lambda t: ins.label(t, ins.PATTERN_LABELS)) + ")"
         plot["label"] = label
         long = plot.melt(
             id_vars="label", value_vars=["precision", "recall", "f1"], var_name="metric", value_name="value"
         )
         long["value"] = pd.to_numeric(long["value"], errors="coerce")
-        fig = px.bar(long, x="label", y="value", color="metric", barmode="group", range_y=[0, 1])
+        long["metric"] = long["metric"].map(lambda c: ins.label(c, ins.COLUMN_LABELS))
+        fig = px.bar(
+            long,
+            x="label",
+            y="value",
+            color="metric",
+            barmode="group",
+            range_y=[0, 1],
+            labels={"label": "Detector (planted pattern it targets)", "value": "Score", "metric": "Grade"},
+            hover_data={"value": ":.1%"},
+        )
+        fig.update_yaxes(tickformat=".0%")
         st.plotly_chart(fig)
 
     if not validated.empty:
@@ -245,8 +305,9 @@ def page_comparison(data: dict, snapshot_id: str):
 
     st.subheader("Heuristic rules (no answer key, so no precision or recall)")
     st.caption("These are useful leads, but nothing planted lets us grade them.")
-    st.dataframe(
+    show_table(
         _pick(heuristic, ["detector", "family", "level", "n_flagged", "any_fraud_precision"]),
+        columns=ins.METRIC_COLUMN_LABELS,
         hide_index=True,
     )
 
@@ -258,8 +319,17 @@ def page_comparison(data: dict, snapshot_id: str):
     shown = False
     if coverage is not None:
         try:
-            matrix = coverage.apply(pd.to_numeric, errors="coerce")
-            fig = px.imshow(matrix, text_auto=".2f", aspect="auto", zmin=0, zmax=1, color_continuous_scale="Blues")
+            matrix = ins.display_frame(coverage.apply(pd.to_numeric, errors="coerce"))
+            fig = px.imshow(
+                matrix,
+                text_auto=".0%",
+                aspect="auto",
+                zmin=0,
+                zmax=1,
+                color_continuous_scale="Blues",
+                labels={"x": "Method", "y": "Planted pattern", "color": "Recall"},
+            )
+            fig.update_coloraxes(colorbar_tickformat=".0%")
             st.plotly_chart(fig)
             shown = True
         except Exception:
@@ -270,17 +340,25 @@ def page_comparison(data: dict, snapshot_id: str):
     with st.expander("Unique catches and overlap between methods"):
         if data["unique"] is not None:
             st.caption("Entities caught by only one method")
-            st.dataframe(data["unique"])
+            show_table(data["unique"], hide_index=True)
         if data["jaccard"] is not None:
             st.caption("Overlap (Jaccard similarity) between methods: 0 means no shared catches, 1 means identical.")
-            st.dataframe(data["jaccard"])
+            jaccard = ins.display_frame(data["jaccard"])
+            st.dataframe(
+                jaccard, column_config={c: st.column_config.NumberColumn(format="%.2f") for c in jaccard.columns}
+            )
 
     st.subheader("How to read these results honestly")
     for line in ins.limitations(data):
         st.markdown(f"- {line}")
 
     if data["report_md"]:
-        with st.expander("Full comparison report (from the pipeline)"):
+        with st.expander("Technical report from the pipeline (internal names)"):
+            st.caption(
+                "This is the raw report the pipeline writes, shown word for word. It uses the internal names "
+                "(for example rule:..., iforest:..., n_flagged, tp_core); the tables above show the same results "
+                "with plain labels, and the Glossary page explains the terms."
+            )
             st.markdown(data["report_md"])
 
 
@@ -343,23 +421,31 @@ def page_queue(data: dict, snapshot_id: str):
     if weights:
         with st.expander("Weight each signal gets in the ranking"):
             st.caption(
-                "source 'measured': precision graded against the planted answer key ('column' says which Stage 8 "
-                "reading), smoothed so a small perfect sample is not treated as certainty. source 'prior': a "
-                "fixed, deliberately low guess for a heuristic with no answer key."
+                "Weight source 'measured': precision graded against the planted answer key ('Precision reading' "
+                "says which Stage 8 reading), smoothed so a small perfect sample is not treated as certainty. "
+                "Weight source 'prior': a fixed, deliberately low guess for a heuristic with no answer key."
             )
-            st.dataframe(pd.DataFrame(weights), hide_index=True)
+            show_table(pd.DataFrame(weights), columns=ins.WEIGHT_COLUMN_LABELS, hide_index=True)
     with st.expander("The five kinds of evidence"):
         for fam, meaning in ins.FAMILY_EXPLANATIONS.items():
-            st.markdown(f"- **{fam}**: {meaning}")
+            st.markdown(f"- **{ins.label(fam, ins.FAMILY_LABELS)}**: {meaning}")
 
-    all_families = sorted({f.strip() for s in q["families"] for f in str(s).split(",")})
-    all_methods = sorted({m.strip() for s in q["methods"] for m in str(s).split(",")})
+    all_families = sorted(
+        {f.strip() for s in q["families"] for f in str(s).split(",")}, key=lambda f: ins.label(f, ins.FAMILY_LABELS)
+    )
+    all_methods = sorted(
+        {m.strip() for s in q["methods"] for m in str(s).split(",")}, key=lambda m: ins.label(m, ins.METHOD_LABELS)
+    )
 
     c1, c2, c3, c4 = st.columns(4)
     min_val = c1.slider("Min validated families", 0, max(int(q["n_validated_families"].max()), 1), 0)
     min_fam = c2.slider("Min total families", 1, max(int(q["n_families"].max()), 2), 1)
-    need_fams = c3.multiselect("Must include family", all_families)
-    need_methods = c4.multiselect("Must include method", all_methods)
+    need_fams = c3.multiselect(
+        "Must include family", all_families, format_func=lambda f: ins.label(f, ins.FAMILY_LABELS)
+    )
+    need_methods = c4.multiselect(
+        "Must include method", all_methods, format_func=lambda m: ins.label(m, ins.METHOD_LABELS)
+    )
     d1, d2 = st.columns([1, 2])
     only_unreg = d1.checkbox("Only IDs not in registry")
     search = d2.text_input("Search beneficiary ID")
@@ -376,14 +462,14 @@ def page_queue(data: dict, snapshot_id: str):
     view = view.assign(why_flagged=view["signal_types"].map(ins.why_flagged))
 
     st.write(f"Showing **{len(view):,}** of {len(q):,} beneficiaries")
-    st.dataframe(
+    score_col = ins.label("max_score")
+    evidence_col = ins.label("evidence_score")
+    show_table(
         view,
         hide_index=True,
         column_config={
-            "evidence_score": st.column_config.ProgressColumn(
-                "evidence_score", min_value=0.0, max_value=1.0, format="%.4f"
-            ),
-            "max_score": st.column_config.ProgressColumn("max_score", min_value=0.0, max_value=1.0, format="%.2f"),
+            evidence_col: st.column_config.ProgressColumn(evidence_col, min_value=0.0, max_value=1.0, format="%.4f"),
+            score_col: st.column_config.ProgressColumn(score_col, min_value=0.0, max_value=1.0, format="%.2f"),
         },
     )
     st.download_button("Download filtered queue (CSV)", view.to_csv(index=False), "case_queue_filtered.csv", "text/csv")
@@ -401,10 +487,12 @@ def page_queue(data: dict, snapshot_id: str):
         )
 
     detail = data["signals"][data["signals"]["beneficiary_id"] == chosen]
-    st.dataframe(detail[["method", "signal_type", "family", "score", "n_flags"]], hide_index=True)
+    show_table(detail[["method", "signal_type", "family", "score", "n_flags"]], hide_index=True)
     st.markdown("**Why it was flagged**")
     for sig in sorted(detail["signal_type"].unique()):
-        st.markdown(f"- **{sig}**: {ins.SIGNAL_EXPLANATIONS.get(sig, 'No description available.')}")
+        st.markdown(
+            f"- **{ins.label(sig, ins.SIGNAL_LABELS)}**: {ins.SIGNAL_EXPLANATIONS.get(sig, 'No description available.')}"
+        )
 
 
 # ── PAGE 4: FRAUD EXPLORER ───────────────────────────────────────────────
@@ -424,25 +512,41 @@ def page_explorer(data: dict, snapshot_id: str):
     )
 
     c1, c2 = st.columns(2)
-    methods = c1.multiselect("Method", sorted(s["method"].unique()), default=sorted(s["method"].unique()))
-    types = c2.multiselect("Signal type", sorted(s["signal_type"].unique()), default=sorted(s["signal_type"].unique()))
+    all_methods = sorted(s["method"].unique(), key=lambda m: ins.label(m, ins.METHOD_LABELS))
+    all_types = sorted(s["signal_type"].unique(), key=lambda t: ins.label(t, ins.SIGNAL_LABELS))
+    methods = c1.multiselect(
+        "Method", all_methods, default=all_methods, format_func=lambda m: ins.label(m, ins.METHOD_LABELS)
+    )
+    types = c2.multiselect(
+        "Signal type", all_types, default=all_types, format_func=lambda t: ins.label(t, ins.SIGNAL_LABELS)
+    )
     f = s[s["method"].isin(methods) & s["signal_type"].isin(types)]
 
     with st.expander("What the selected signals mean", expanded=True):
         for t in types:
-            st.markdown(f"- **{t}**: {ins.SIGNAL_EXPLANATIONS.get(t, 'No description available.')}")
+            st.markdown(
+                f"- **{ins.label(t, ins.SIGNAL_LABELS)}**: {ins.SIGNAL_EXPLANATIONS.get(t, 'No description available.')}"
+            )
 
     m1, m2 = st.columns(2)
     m1.metric("Distinct beneficiaries", f"{f['beneficiary_id'].nunique():,}")
     m2.metric("Signal rows", f"{len(f):,}")
 
     if not f.empty:
-        by_type = f.groupby(["method", "signal_type"])["beneficiary_id"].nunique().reset_index(name="beneficiaries")
-        fig = px.bar(by_type, x="beneficiaries", y="signal_type", color="method", orientation="h")
+        by_type = f.groupby(["method", "signal_type"])["beneficiary_id"].nunique().reset_index(name="n_beneficiaries")
+        by_type = ins.display_frame(by_type)
+        fig = px.bar(
+            by_type,
+            x=ins.label("n_beneficiaries"),
+            y=ins.label("signal_type"),
+            color=ins.label("method"),
+            orientation="h",
+        )
+        whole_number_axis(fig, "x", by_type[ins.label("n_beneficiaries")].max())
         st.plotly_chart(fig)
 
         st.subheader("Flagged beneficiaries")
-        st.dataframe(f.sort_values(["score", "beneficiary_id"], ascending=[False, True]), hide_index=True)
+        show_table(f.sort_values(["score", "beneficiary_id"], ascending=[False, True]), hide_index=True)
         st.download_button("Download (CSV)", f.to_csv(index=False), "signals_filtered.csv", "text/csv")
 
 
@@ -473,6 +577,12 @@ def page_report(data: dict, snapshot_id: str):
         return
 
     html_text = path.read_text(encoding="utf-8")
+    if "<section class='technical'>" not in html_text:  # written before report.py used the display names
+        st.caption(
+            "This report was written before the plain-language labels were added, so it still shows internal "
+            "names (for example rule:..., iforest:..., n_flagged). Click Generate above to rebuild it with the "
+            "same names as the rest of the dashboard; the numbers do not change."
+        )
     st.download_button("Download report (HTML)", html_text, f"fraud_report_{snapshot_id}.html", "text/html")
     try:
         if hasattr(st, "iframe"):  # newer Streamlit (components.html is being retired)
@@ -495,10 +605,10 @@ def page_glossary(data: dict, snapshot_id: str):
         st.markdown(f"**{term}**: {meaning}")
     st.subheader("The five kinds of evidence")
     for fam, meaning in ins.FAMILY_EXPLANATIONS.items():
-        st.markdown(f"**{fam}**: {meaning}")
+        st.markdown(f"**{ins.label(fam, ins.FAMILY_LABELS)}**: {meaning}")
     st.subheader("The signals")
     for sig, meaning in ins.SIGNAL_EXPLANATIONS.items():
-        st.markdown(f"**{sig}**: {meaning}")
+        st.markdown(f"**{ins.label(sig, ins.SIGNAL_LABELS)}**: {meaning}")
 
 
 PAGES = {

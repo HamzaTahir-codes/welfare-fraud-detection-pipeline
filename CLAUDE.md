@@ -28,7 +28,8 @@ Welfare-fraud detection pipeline: synthetic data → ETL → PostgreSQL → thre
 
 ## Verification
 
-- `pytest` runs unit tests on hand-built DataFrames — no database or data files needed. Put new pure-function tests in `tests/test_*.py`.
+- `pytest` runs unit tests on hand-built DataFrames — no database or data files needed. Put new pure-function tests in `tests/test_*.py`. Exception: `tests/test_dashboard_pages.py` runs the dashboard headless (Streamlit `AppTest`) against the tracked snapshot (CI installs streamlit and plotly for it; it skips only where they are missing) and builds the findings report from a temporary copy of that snapshot.
+- Dashboard display names (column headers, method/signal/pattern names) live in one mapping in `src/dashboard/insights.py` (`COLUMN_LABELS`, `METHOD_LABELS`, ...), applied only at display time by both the dashboard and `report.py`; snapshot CSVs and downloads keep the raw names.
 - Lint with `ruff check .` (config in `pyproject.toml`); a hook runs `ruff format` on every edited `.py` file.
 - End-to-end, the DAG's `validate_run` task is the quality gate: non-empty tables, fresh result files, and recall/precision floors against the planted answer key (rules 0.99, fuzzy 0.90, layered IF recall 0.60). Changes to detectors should keep those floors.
 - `tests/publish_test.py` is a standalone script (`python tests/publish_test.py`) that needs an existing published snapshot; pytest deliberately doesn't collect it.
