@@ -12,3 +12,5 @@ airflow/logs/
 data/reports/*.html
 data/staging/*.json
 data/dashboard/
+.claude/settings.local.json
+CLAUDE.local.md
