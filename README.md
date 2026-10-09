@@ -348,6 +348,8 @@ pip install -r requirements.txt        # or requirements-dev.txt for pytest, ruf
 brew services start postgresql@15
 createdb welfare_fraud_db
 psql welfare_fraud_db -f src/database/schema.sql
+
+pytest                                 # unit tests, no database needed (requirements-dev.txt)
 ```
 
 Create a `.env` in the project root with your Postgres connection settings (see `src/database/config.py` for the

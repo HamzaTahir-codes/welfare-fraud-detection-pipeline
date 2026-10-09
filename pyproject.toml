@@ -5,3 +5,10 @@ extend-exclude = ["notebooks", "data", "airflow/logs"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# transform_stage.py does `from extract_stage import ...`, so src/etl must be importable too
+pythonpath = [".", "src/etl"]
+# only test_*.py; tests/publish_test.py is a standalone script that needs a published snapshot
+python_files = ["test_*.py"]
