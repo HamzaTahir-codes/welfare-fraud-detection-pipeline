@@ -322,11 +322,11 @@ welfare-fraud-detection-pipeline/
 │   │                                    #   evaluate_* scripts, compare_methods.py
 │   └── dashboard/                       # publish.py, insights.py, report.py, app.py
 ├── notebooks/                           # exploratory Jupyter notebooks
-├── tests/
-├── docs/                                # banner, architecture diagram, PROJECT_LOG.md
+├── tests/                               # pytest unit tests (no database needed)
+├── docs/                                # banner, diagram, PROJECT_LOG.md, commands.md (Docker / Airflow)
 ├── docker-compose.yaml · Dockerfile · requirements-airflow.txt
-├── commands.md                          # every Docker / Airflow command, with explanations
-└── requirements.txt
+├── pyproject.toml                       # ruff + pytest config
+└── requirements.txt · requirements-dev.txt
 ```
 
 ---
@@ -343,7 +343,7 @@ git clone https://github.com/YOUR_USERNAME/welfare-fraud-detection-pipeline.git
 cd welfare-fraud-detection-pipeline
 
 python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt        # or requirements-dev.txt for pytest, ruff and local Airflow
 
 brew services start postgresql@15
 createdb welfare_fraud_db
@@ -362,8 +362,8 @@ rewrites them in place, so re-running it blindly would compound.
 python src/data_generation/generate_beneficiaries.py --count 5000 --seed 42
 python src/data_generation/generate_national_id.py --seed 42
 python src/data_generation/generate_disbursements.py --cycles 6 --seed 42
-python src/data_generation/generate_duplicate_identities.py    # plants 40 duplicate pairs
-python src/data_generation/generate_anomalous_profiles.py      # plants 25 behavioural anomalies
+python src/data_generation/generate_duplicate_ids.py           # plants 40 duplicate pairs
+python src/data_generation/generate_anomalous_profile.py       # plants 25 behavioural anomalies
 python src/data_generation/inject_messiness.py                 # run last
 ```
 
@@ -463,7 +463,7 @@ streamlit run src/dashboard/app.py
 - [ ] Final report and live demo
 
 📖 The full build history, every bug found and every decision (with the reasoning behind it) lives in
-[`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md). Docker and Airflow commands are in [`commands.md`](commands.md).
+[`docs/PROJECT_LOG.md`](docs/PROJECT_LOG.md). Docker and Airflow commands are in [`docs/commands.md`](docs/commands.md).
 
 ---
 

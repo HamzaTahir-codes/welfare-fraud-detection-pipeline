@@ -23,7 +23,7 @@ Design notes
   * Isolation Forest --layered excludes entities already flagged by Stage 5/6,
     so it is downstream of all three other detectors. Run IDs for both IF runs are
     captured and handed to compare_methods so the report labels are correct.
-  * Stage 1 data generation is deliberately NOT in this DAG: generate_duplicate_identities.py
+  * Stage 1 data generation is deliberately NOT in this DAG: generate_duplicate_ids.py
     appends and inject_messiness.py rewrites in place, so they are not safe to re-run.
   * publish_dashboard runs ONLY if validate_run passed. It writes a snapshot folder (plus the written
     report) under data/dashboard/ and moves latest.json last. The Streamlit app reads only that
