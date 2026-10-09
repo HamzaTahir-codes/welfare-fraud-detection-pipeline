@@ -11,6 +11,9 @@
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)
 ![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)
 
+[![CI](https://github.com/HamzaTahir-codes/welfare-fraud-detection-pipeline/actions/workflows/ci.yml/badge.svg)](https://github.com/HamzaTahir-codes/welfare-fraud-detection-pipeline/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 ### Multi-Source Data Pipeline & Fraud Detection System for Public Welfare Disbursement
 
 *Three welfare systems that never talk to each other. Three fraud detectors that each see something different.*
@@ -22,18 +25,20 @@
 <tr>
 <td align="center" width="180"><h2>10</h2><sub><b>pipeline stages</b><br/>data generation → dashboard</sub></td>
 <td align="center" width="180"><h2>3</h2><sub><b>fraud detectors</b><br/>rules · fuzzy linkage · Isolation Forest</sub></td>
-<td align="center" width="180"><h2>390</h2><sub><b>planted fraud entities</b><br/>the answer key everything is graded on</sub></td>
+<td align="center" width="180"><h2>1,006</h2><sub><b>planted fraud entities</b><br/>the answer key everything is graded on</sub></td>
 <td align="center" width="180"><h2>1</h2><sub><b>Airflow DAG</b><br/>runs it all, then gates the results</sub></td>
 </tr>
 </table>
+
+<img src="docs/screenshots/dashboard-demo.gif" alt="Dashboard walkthrough: overview, method comparison heatmap and investigation queue" width="90%"/>
+
+<br/>
 
 **[Results](#results) · [Architecture](#architecture) · [Fraud patterns](#patterns) · [Detectors](#detectors) · [Dashboard](#dashboard) · [Quick start](#quickstart) · [Limitations](#limitations) · [Project log](docs/PROJECT_LOG.md)**
 
 </div>
 
 <br/>
-
-> *Final Data Science project, course submission (affiliated with the IBM certification program).*
 
 ---
 
@@ -59,21 +64,21 @@ techniques over it, scoring each one against a planted ground truth so the compa
 <a id="results"></a>
 ## 🏆 Results
 
-Every detector is graded against the same answer key (25 orphan payments, 300 shared-account victims, 40 duplicate
-identities, 25 behavioural anomalies) on the current dataset of 5,090 beneficiary rows, 18,844 disbursement rows
-and 6,040 national ID rows.
+Every detector is graded against the same answer key (25 orphan payments, 916 shared-account victims, 40 duplicate
+identities, 25 behavioural anomalies) on the current dataset of 15,190 beneficiary rows, 55,549 disbursement rows
+and 15,040 national ID rows. Full tables: [`data/results/comparison_report.md`](data/results/comparison_report.md).
 
 | Method | What it hunts | Flagged | Planted found (recall) | Precision |
 |---|---|---:|---|---:|
-| 📏 **Rule-based** (2 validated rules) | Orphan payments, shared bank accounts | 375 | **325 / 325** · 100% | 100% ¹ |
-| 🔗 **Fuzzy record linkage** | Duplicate identities | 80 | **40 / 40 pairs** · 100% | 100% ¹ |
-| 🌲 **Isolation Forest**, standard | Multivariate behavioural anomalies | 159 | 3 / 25 · 12% | 2% (79% any-fraud ²) |
-| 🌲 **Isolation Forest**, layered | Multivariate behavioural anomalies | 139 | **21 / 25 · 84%** | 15% |
-| 🧪 *Reference: `n_payments > 6`* | One-line baseline, not a detector | 217 | 25 / 25 · 100% | 12% (192 of 217 are shared-account victims Stage 5 already catches) |
-| 🧩 **Ensemble** (rules + fuzzy + layered IF) | Everything | 592 | **386 / 390 · 99.0%** | 80% any-fraud ² |
+| 📏 **Rule-based** (2 validated rules) | Orphan payments, shared bank accounts | 1,103 | **941 / 941** · 100% | 99.9% ¹ |
+| 🔗 **Fuzzy record linkage** | Duplicate identities | 82 | **39 / 40 pairs** · 97.5% | 95.1% ¹ |
+| 🌲 **Isolation Forest**, standard | Multivariate behavioural anomalies | 469 | 4 / 25 · 16% | 0.9% (75% any-fraud ²) |
+| 🌲 **Isolation Forest**, layered | Multivariate behavioural anomalies | 412 | **20 / 25 · 80%** | 4.9% |
+| 🧪 *Reference: `n_payments > 6`* | One-line baseline, not a detector | 595 | 25 / 25 · 100% | 4.2% (the other 570 are planted fraud of other kinds, mostly shared-account victims Stage 5 already catches) |
+| 🧩 **Ensemble** (rules + fuzzy + layered IF) | Everything | 1,595 | **1,001 / 1,006 · 99.5%** | 75% any-fraud ² |
 
-<sub>¹ Precision credits the genuine counterparts the answer key never lists as culprits (hub-account owners, the original identity behind each duplicate). Against culprits alone, the rule-based figure is 86.7% (325 / 375); the other 50 are hub-account owners.<br/>
-² "Any-fraud" precision counts a flag as correct if the entity belongs to <i>any</i> planted pattern. All of the ensemble's precision loss is Isolation Forest's 118 unplanted flags, which are either novel findings or legitimate rare behaviour and cannot be scored either way.</sub>
+<sub>¹ Precision credits the genuine counterparts the answer key never lists as culprits (hub-account owners, the original identity behind each duplicate). Against culprits alone, the rule-based figure is 85.3% (941 / 1,103) and fuzzy linkage is 47.6%; the rest are hub-account owners and original identities.<br/>
+² "Any-fraud" precision counts a flag as correct if the entity belongs to <i>any</i> planted pattern. Almost all of the ensemble's precision loss (391 of 395 unplanted flags) comes from layered Isolation Forest; those flags are either novel findings or legitimate rare behaviour and cannot be scored either way.</sub>
 
 ### Who finds what
 
@@ -82,19 +87,21 @@ Each method owns a different lane. Bars show recall on that pattern; a dash mean
 | Planted pattern | Rules | Fuzzy linkage | IF standard | IF layered |
 |---|---|---|---|---|
 | 👻 Orphan payments (25) | `██████████` 100% | — | — | — |
-| 🏦 Shared-account victims (300) | `██████████` 100% | — | `████░░░░░░` 37% | excluded by design |
-| 👥 Duplicate identities (40) | — | `██████████` 100% | 11 flagged incidentally | excluded by design |
-| 🎭 Behavioural anomalies (25) | — | — | `█░░░░░░░░░` 12% | `████████░░` 84% |
+| 🏦 Shared-account victims (916) | `██████████` 100% | — | `████░░░░░░` 37% | excluded by design |
+| 👥 Duplicate identities (40) | — | `██████████` 97.5% | 8 flagged incidentally | excluded by design |
+| 🎭 Behavioural anomalies (25) | — | — | `██░░░░░░░░` 16% | `████████░░` 80% |
 
 ### What the numbers actually say
 
-1. **Rules and fuzzy linkage are exact on planted structure.** Orphan IDs and shared accounts have an unambiguous
-   signature, and duplicate identities keep their date of birth by construction. Perfect scores there confirm the
-   detectors work, not that real-world fraud is this easy.
+1. **Rules and fuzzy linkage are (near-)exact on planted structure.** Orphan IDs and shared accounts have an unambiguous
+   signature, and duplicate identities keep their date of birth by construction. Near-perfect scores there confirm the
+   detectors work, not that real-world fraud is this easy. Fuzzy linkage misses 1 of 40 pairs at 15,000 beneficiaries,
+   where it found all 40 at 5,000: more people share a birthday, so the name-and-address margin gets tighter.
 2. **Isolation Forest is the only method that finds the behavioural profile without a hand-written rule**, but it is
-   precise on about 1 in 6.6 flags. Its standard run was swamped by shared-account victims (111 of its 159 flags), which are
-   *more* extreme than the planted anomalies. **Layered mode**, which trains only on beneficiaries Stages 5 and 6 have not
-   already flagged, lifted recall from 12% to 84%.
+   precise on about 1 in 20 flags. Its standard run was swamped by shared-account victims (about 340 of its 469 flags), which
+   are *more* extreme than the planted anomalies. **Layered mode**, which trains only on beneficiaries Stages 5 and 6 have not
+   already flagged, lifted recall from 16% to 80%. Precision fell from 1 in 6.6 at 5,000 beneficiaries to 1 in 20 here
+   because the planted anomalies stay at 25 while a 5% flagging budget grows with the population.
 3. **A one-line baseline ties it.** `n_payments > 6` catches all 25, because the anomalies were planted with a deterministic
    separator (7 payments, versus a legitimate maximum of 6). This experiment shows Isolation Forest *works without being told
    where to look*, not that it beats a rule.
@@ -196,13 +203,13 @@ One function per rule, reading from Postgres into pandas and bulk-writing to `fr
 | Rule | Fires when | Status |
 |---|---|---|
 | `orphaned_disbursement` | A payment references a `beneficiary_id` absent from the registry | ✅ Validated · 25 / 25 |
-| `shared_bank_account` | More than one *distinct* beneficiary is paid into the same account | ✅ Validated · 300 / 300 |
-| `duplicate_cycle_payment` | Same beneficiary paid twice in one cycle | Heuristic · 2,009 flagged |
-| `payment_to_inactive_beneficiary` | Payment made while status is Inactive or Suspended | Heuristic · 596 flagged |
-| `cnic_mismatch` | Registry CNIC differs from the linked national ID number | Heuristic · 326 flagged |
-| `duplicate_cnic_multiple_identities` | Same CNIC claimed by several beneficiary IDs | Heuristic · 0 flagged |
+| `shared_bank_account` | More than one *distinct* beneficiary is paid into the same account | ✅ Validated · 916 / 916 |
+| `duplicate_cycle_payment` | Same beneficiary paid twice in one cycle | Heuristic · 596 beneficiaries |
+| `payment_to_inactive_beneficiary` | Payment made while status is Inactive or Suspended | Heuristic · 346 beneficiaries |
+| `cnic_mismatch` | Registry CNIC differs from the linked national ID number | Heuristic · 986 beneficiaries |
+| `duplicate_cnic_multiple_identities` | Same CNIC claimed by several beneficiary IDs | Heuristic · 0 beneficiaries |
 
-`duplicate_cycle_payment` overlaps `shared_bank_account` on 50.8% of its signals: it largely re-detects the same fraud from a
+`duplicate_cycle_payment` overlaps `shared_bank_account` heavily (50.8% of its signals on the 5,000-beneficiary run): it largely re-detects the same fraud from a
 different angle. The two are **not counted as independent evidence** anywhere downstream.
 
 </details>
@@ -212,12 +219,13 @@ different angle. The two are **not counted as independent evidence** anywhere do
 
 <br/>
 
-Self-linkage of the beneficiary table: block on exact date of birth (547 candidate pairs instead of over 12 million), score
+Self-linkage of the beneficiary table: block on exact date of birth (547 candidate pairs instead of over 12 million at 5,000 beneficiaries), score
 `full_name` (weight 0.6) and `address_line` (0.4) with RapidFuzz `token_sort_ratio` after stripping common honorifics and
 address boilerplate, and choose the flagging threshold by sweeping 0.50–0.99 for the best F1 against the answer key.
 
-- **Result:** 40 / 40 planted pairs found, threshold 0.55, precision = recall = F1 = 1.0.
-- **Separation:** true-pair scores run 0.576–0.993 (median 0.961); the best non-match scores 0.540.
+- **Result (15,000 beneficiaries):** 39 / 40 planted pairs found with 41 pairs flagged: precision 95.1%, recall 97.5%, F1 0.963.
+- **On the 5,000-beneficiary run:** 40 / 40 at threshold 0.55 (precision = recall = F1 = 1.0); true-pair scores ran
+  0.576–0.993 (median 0.961) and the best non-match scored 0.540.
 - **Without stopword stripping**, true pairs and unrelated same-birthday pairs overlapped heavily. Shared boilerplate tokens
   ("Muhammad", "House", "Street") were doing the matching.
 
@@ -231,9 +239,9 @@ address boilerplate, and choose the flagging threshold by sweeping 0.50–0.99 f
 One row per beneficiary with payment count, mean amount, total received, income and amount-to-income ratio. No rules, and
 no ground truth, are ever shown to the model (contamination 0.05, 300 trees, seed 42).
 
-- **Standard mode** scores everyone. Shared-account victims (paid 9–12 times) use up the flagging budget: 3 / 25 anomalies found.
-- **Layered mode** (`--layered`) first excludes the 411 beneficiaries already flagged by Stage 5 / 6. Nothing is deleted from the
-  database. Result: 21 / 25 at 5% flagged, 25 / 25 at 10%, ROC-AUC 0.972.
+- **Standard mode** scores everyone. Shared-account victims (paid 9–12 times) use up the flagging budget: 4 / 25 anomalies found.
+- **Layered mode** (`--layered`) first excludes the beneficiaries already flagged by Stage 5 / 6. Nothing is deleted from the
+  database. Result: 20 / 25 at 5% flagged (on the 5,000-beneficiary run: 21 / 25 at 5%, 25 / 25 at 10%, ROC-AUC 0.972).
 - The evaluation reports a contamination sweep, ROC-AUC and average precision, and a breakdown of everything the model flagged,
   because "unusual" is not the same as "the one pattern we planted".
 
@@ -246,6 +254,17 @@ no ground truth, are ever shown to the model (contamination 0.05, 300 trees, see
 
 A Streamlit app that explains itself in plain language, so it can be presented without a script. It reads a **published
 snapshot** written by the last Airflow task, not live Postgres, so what you demo is exactly what passed the quality gate.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/01-start-here.png" alt="Start here page: plain-language summary of the run"/><br/><sub><b>Start here</b> · the 30-second story of the run</sub></td>
+<td width="50%"><img src="docs/screenshots/02-overview.png" alt="Overview page: row counts, data-quality flag rates and signals per detector"/><br/><sub><b>Overview</b> · data volume, data-quality flags, signals per detector</sub></td>
+</tr>
+<tr>
+<td width="50%"><img src="docs/screenshots/03-method-comparison.png" alt="Method comparison page: recall heatmap of each method against each planted pattern"/><br/><sub><b>Method comparison</b> · which method catches which planted pattern</sub></td>
+<td width="50%"><img src="docs/screenshots/04-investigation-queue.png" alt="Investigation queue page: beneficiaries ranked by independent evidence"/><br/><sub><b>Investigation queue</b> · who a human should look at first</sub></td>
+</tr>
+</table>
 
 | Page | What it answers |
 |---|---|
@@ -336,10 +355,14 @@ welfare-fraud-detection-pipeline/
 
 **Prerequisites:** Python 3, PostgreSQL 15, Docker Desktop (only for the Airflow route).
 
+> [!TIP]
+> **Just want to see the dashboard?** The repo ships with one published snapshot, so no database or pipeline run is needed:
+> `pip install -r src/dashboard/requirements.txt && streamlit run src/dashboard/app.py`
+
 ### 1 · Set up
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/welfare-fraud-detection-pipeline.git
+git clone https://github.com/HamzaTahir-codes/welfare-fraud-detection-pipeline.git
 cd welfare-fraud-detection-pipeline
 
 python3 -m venv venv && source venv/bin/activate
@@ -361,7 +384,7 @@ Stage 1 is deliberately **not** in the DAG: the duplicate-identity generator app
 rewrites them in place, so re-running it blindly would compound.
 
 ```bash
-python src/data_generation/generate_beneficiaries.py --count 5000 --seed 42
+python src/data_generation/generate_beneficiaries.py --count 15000 --seed 42
 python src/data_generation/generate_national_id.py --seed 42
 python src/data_generation/generate_disbursements.py --cycles 6 --seed 42
 python src/data_generation/generate_duplicate_ids.py           # plants 40 duplicate pairs
@@ -437,9 +460,10 @@ streamlit run src/dashboard/app.py
 
 - **Planted, not discovered.** The rule-based and fuzzy results are exact because the fraud was generated with a clean signature.
   Real fraud is messier.
-- **The fuzzy margin is thin.** True pairs and the best non-match are separated by 0.036 on the current dataset (0.016 on the first).
+- **The fuzzy margin is thin.** On the 5,000-beneficiary run, true pairs and the best non-match were separated by only 0.036, and at
+  15,000 one planted pair now falls below the threshold.
   It validates one perturbation style (a character-level typo plus an abbreviation swap), not arbitrary real-world name variation.
-- **Isolation Forest is a lead generator, not a verdict.** Layered mode is right on about 1 in 6.6 flags, and its unplanted flags are
+- **Isolation Forest is a lead generator, not a verdict.** Layered mode is right on about 1 in 20 flags at this scale, and its unplanted flags are
   either novel findings or legitimate rare behaviour. Without ground truth they cannot be told apart.
 - **The anomaly has a one-line separator.** `n_payments > 6` matches Isolation Forest here because the pattern was planted that way.
 - **Four of the six rules are unvalidated heuristics.** They are reported as signal counts, never as precision or recall.
@@ -484,3 +508,12 @@ streamlit run src/dashboard/app.py
 <sub>Built to catch ghosts, and to be honest about how well it does.</sub>
 
 </div>
+
+---
+
+## 📄 License
+
+MIT. See [`LICENSE`](LICENSE). `docker-compose.yaml` is adapted from Apache Airflow's official file and stays under
+Apache-2.0; see [`NOTICE.md`](NOTICE.md).
+
+<sub>Built as the final project of a data science program affiliated with the IBM certification.</sub>
