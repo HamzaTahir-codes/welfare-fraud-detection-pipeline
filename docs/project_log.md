@@ -639,6 +639,7 @@ Every bug that changed a result or a design decision, in one place.
 | Stage | Bug | Root cause | Fix |
 |---|---|---|---|
 | 3 | `"Rs. 10,000"` parsed as 0.1 (~8% of amounts) | Currency stripping removed the letters but left the dot | Fixed `strip_currency_symbols`; ETL re-run |
+| 3 | Missing income/amount flagged as invalid (`income_flag`, `amount_flag`) | `strip_currency_symbols` casts to `str`, so `None`/`NaN` became `""`, and the invalid mask was computed after that, so `series.notna()` was always true | `clean_numeric_with_cap` records the missing mask before stripping; missing values are never flagged, for any column. Data/results not yet re-run (see note below) |
 | 4 | `pd.isna()` crash on list values | Called on already-converted `data_quality_flags` | Check `isinstance(x, list)` first |
 | 4 | `ModuleNotFoundError: No module named 'src'` | `sys.path` went up one directory, not two | Run with `python -m` from the project root |
 | 5 | `shared_bank_account` flagged 99.5% of disbursements | Counted rows per account instead of distinct beneficiaries | Recomputed in Stage 5 as distinct beneficiaries per account (>1) |
@@ -649,6 +650,14 @@ Every bug that changed a result or a design decision, in one place.
 | 8 | "Standard" Isolation Forest row was actually the layered run | `compare_methods` defaults to the latest run | Always pass both run IDs (the DAG does) |
 | 9 | Scheduler and worker looped on "connection refused" | A container env var named `DB_HOST` collides with Airflow's Redis lookup | `PROJECT_DB_HOST`, copied to `DB_HOST` by `_prepare_env()` at task time |
 | 9 | Detector tasks failed in ~1 second | `_run_module` copied the environment before `_prepare_env()` ran | Call `_prepare_env()` first |
+
+> [!NOTE]
+> **Missing-value flag fix (Stage 3, after the 15k run).** The committed `data/clean/*.csv`, `data/results/*` and the dashboard
+> snapshot `data/dashboard/20260922052809/` were produced **before** this fix and were not regenerated (no database in that
+> environment). In `beneficiaries_cleaned.csv`, 439 of the 742 `income_flag` rows are simply missing incomes, so the
+> `income_flag` rate (4.9% in `kpis.json`) should drop to about 2.0% (303 / 15,190 rows) on the next full pipeline run, and those
+> rows lose `income_flag` from `data_quality_flags`. `amount_flag` is unaffected on this data (no missing amounts).
+> `monthly_income_clean` / `amount_pkr_clean` were already null for these rows, so detector inputs do not change.
 
 ---
 

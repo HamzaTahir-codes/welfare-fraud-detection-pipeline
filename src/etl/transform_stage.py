@@ -107,11 +107,14 @@ def clean_numeric_with_cap(series, cap, allow_negative=False):
     Returns:
         pd.Series: A new Series with cleaned numeric values.
     """
-    # Only strip currency symbols from amount_pkr column
+    # Record missing values BEFORE stripping: strip_currency_symbols casts to str, so None/NaN
+    # become "None"/"nan" -> "" and would otherwise be flagged as unparseable
+    missing = series.isna()
+    # Only strip currency symbols from the amount_pkr / monthly_income_pkr columns
     if series.name == "amount_pkr" or series.name == "monthly_income_pkr":
         series = strip_currency_symbols(series)
     numeric = pd.to_numeric(series, errors="coerce")  # convert to numeric, unparseable -> NaN
-    invalid_mask = numeric.isna() & series.notna()  # original non-NaN but unparseable
+    invalid_mask = numeric.isna() & ~missing  # originally present but unparseable (missing is not invalid)
 
     if not allow_negative:
         invalid_mask |= numeric < 0  # mark negatives as invalid if not allowed
