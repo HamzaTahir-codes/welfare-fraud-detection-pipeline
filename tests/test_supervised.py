@@ -1,22 +1,34 @@
 """Unit tests for src/fraud_detection/supervised.py on tiny hand-built frames (no DB, no data files)."""
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
 
 from src.fraud_detection.isolation_forest import FEATURE_COLUMNS, build_features
+from src.fraud_detection import supervised
 from src.fraud_detection.supervised import (
     FEATURE_SETS,
     GROUND_TRUTH_COLUMNS,
     LABEL_PREFIX,
+    METRIC_ORDER,
+    MODEL_METHODS,
     PRIMARY_TARGET,
+    RULE_FEATURE_SET,
+    RULE_METHOD,
     SECONDARY_TARGET,
+    TARGETS,
     add_row_ids,
     assert_no_leakage,
     attach_labels,
     expected_hits_at_k,
     fold_metrics,
+    relation,
     rule_scores,
+    run_cv,
+    summarise,
+    write_report,
 )
 
 
@@ -162,3 +174,117 @@ def test_fold_metrics_on_perfect_and_rule_scores():
 
 def test_rule_scores_threshold():
     assert rule_scores([5, 6, 7, 12]).tolist() == [0.0, 0.0, 1.0, 1.0]
+
+
+def test_relation_uses_report_precision():
+    assert relation(0.1614, 0.1606) == "equal to"  # both print as 0.161
+    assert relation(0.008, 0.161) == "below"
+    assert relation(0.689, 0.636) == "above"
+
+
+# ---------------------------------------------------------------------
+# End-to-end on a small synthetic labelled frame (seconds, not the 3-minute CLI)
+# ---------------------------------------------------------------------
+
+
+def synthetic_labelled_frame(n=400, seed=0):
+    """Feature frame shaped like build_features output, with both y_* columns.
+    Primary positives have exactly 7 payments; extra secondary positives have 9."""
+    rng = np.random.default_rng(seed)
+    n_pay = rng.integers(1, 7, size=n)  # 1..6
+    n_pay[:10] = 7  # primary positives
+    n_pay[10:50] = 9  # other planted frauds
+    mean_amount = rng.normal(7000, 800, size=n)
+    income = rng.normal(15000, 3000, size=n).clip(1000)
+    df = pd.DataFrame(
+        {
+            "row_id": np.arange(1, n + 1),
+            "beneficiary_id": [f"B{i:04d}" for i in range(n)],
+            "n_payments": n_pay,
+            "mean_amount": mean_amount,
+            "total_amount": mean_amount * n_pay,
+            "income": income,
+            "amount_to_income": mean_amount / income,
+        }
+    )
+    df[LABEL_PREFIX + PRIMARY_TARGET] = (np.arange(n) < 10).astype(int)
+    df[LABEL_PREFIX + SECONDARY_TARGET] = (np.arange(n) < 50).astype(int)
+    return df
+
+
+@pytest.fixture(scope="module")
+def smoke_run():
+    data = synthetic_labelled_frame()
+    folds, imps = [], []
+    for t in TARGETS:
+        f, i = run_cv(data, t, n_splits=2, n_repeats=1, seed=42, verbose=False)
+        folds.append(f)
+        imps.append(i)
+    summary = summarise(pd.concat(folds, ignore_index=True), pd.concat(imps, ignore_index=True))
+    return data, summary
+
+
+def cell_mean(summary, target, fs, method, metric):
+    return float(supervised.summary_row(summary, target, fs, method, metric)["mean"])
+
+
+def test_smoke_summary_has_every_metric_cell(smoke_run):
+    _, summary = smoke_run
+    cv = summary[summary["kind"] == "cv_metric"]
+    combos = [(RULE_FEATURE_SET, RULE_METHOD)] + list(itertools.product(FEATURE_SETS, MODEL_METHODS))
+    for t, (fs, meth), metric in itertools.product(TARGETS, combos, METRIC_ORDER):
+        cell = cv[(cv["target"] == t) & (cv["feature_set"] == fs) & (cv["method"] == meth) & (cv["metric"] == metric)]
+        assert len(cell) == 1, (t, fs, meth, metric)
+        assert cell["n_folds"].iloc[0] == 2
+        assert np.isfinite(cell["mean"].iloc[0])
+
+
+def test_smoke_summary_has_every_permutation_importance_row(smoke_run):
+    _, summary = smoke_run
+    imp = summary[summary["kind"] == "permutation_importance"]
+    for t in TARGETS:
+        for fs, cols in FEATURE_SETS.items():
+            got = imp[(imp["target"] == t) & (imp["feature_set"] == fs) & (imp["method"] == "hgb")]["metric"]
+            assert sorted(got) == sorted("perm_importance_ap:" + c for c in cols), (t, fs)
+
+
+def test_smoke_write_report(smoke_run, tmp_path):
+    data, summary = smoke_run
+    out = tmp_path / "report.md"
+    write_report(summary, data, n_splits=2, n_repeats=1, seed=42, path=out)
+    text = out.read_text(encoding="utf-8")
+    assert "n/a" not in text
+    assert "n_payments = 7 alone identifies the planted anomaly" in text
+    assert "fit per training fold (~200 rows)" in text
+    # the logreg 1% sentence carries the computed numbers and the computed comparison word
+    a = cell_mean(summary, PRIMARY_TARGET, "all", "logreg", "recall_at_1pct")
+    b = cell_mean(summary, PRIMARY_TARGET, RULE_FEATURE_SET, RULE_METHOD, "recall_at_1pct")
+    assert f"at the 1% budget recall {a:.3f} vs rule {b:.3f} ({relation(a, b)})" in text
+
+
+def test_report_wording_follows_the_numbers(smoke_run, tmp_path):
+    """Move one cell in the summary and the comparison word in the text moves with it."""
+    data, summary = smoke_run
+    rule_pr = cell_mean(summary, PRIMARY_TARGET, RULE_FEATURE_SET, RULE_METHOD, "pr_auc")
+    cell = (
+        (summary["kind"] == "cv_metric")
+        & (summary["target"] == PRIMARY_TARGET)
+        & (summary["feature_set"] == "all")
+        & (summary["method"] == "logreg")
+        & (summary["metric"] == "pr_auc")
+    )
+    for label, value in (("above", rule_pr + 0.25), ("below", rule_pr - 0.01), ("equal to", rule_pr)):
+        tampered = summary.copy()
+        tampered.loc[cell, "mean"] = value
+        out = tmp_path / f"{label.replace(' ', '_')}.md"
+        write_report(tampered, data, n_splits=2, n_repeats=1, seed=42, path=out)
+        assert f"PR-AUC {value:.3f} vs rule {rule_pr:.3f} ({label})" in out.read_text(encoding="utf-8")
+
+
+def test_run_cv_enforces_leakage_guard(monkeypatch):
+    data = synthetic_labelled_frame()
+    data["fraud_type"] = data[LABEL_PREFIX + PRIMARY_TARGET].astype(float)
+    for leaked in (LABEL_PREFIX + PRIMARY_TARGET, "fraud_type"):
+        monkeypatch.setattr(supervised, "FEATURE_SETS", {"leaky": ["n_payments", leaked]})
+        with pytest.raises(ValueError, match="Leakage guard"):
+            run_cv(data, PRIMARY_TARGET, n_splits=2, n_repeats=1, seed=42, verbose=False)

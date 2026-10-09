@@ -361,30 +361,189 @@ def mean_of(summary, target, fs, method, metric, kind="cv_metric") -> float:
     return float(summary_row(summary, target, fs, method, metric, kind)["mean"])
 
 
+# The report prints means with 3 decimals; every comparison word is decided at that
+# same precision, so the text cannot contradict the table it sits next to.
+REPORT_DIGITS = 3
+
+
+def relation(a: float, b: float, digits: int = REPORT_DIGITS) -> str:
+    """'above', 'below' or 'equal to': a compared with b, at the precision shown in the report."""
+    ra, rb = round(float(a), digits), round(float(b), digits)
+    if ra == rb:
+        return "equal to"
+    return "above" if ra > rb else "below"
+
+
+def compare_to_rule(summary: pd.DataFrame, target: str, method: str) -> dict:
+    """For every (feature_set, metric) cell: method mean vs rule mean.
+    Returns {'above'|'below'|'equal to': [(feature_set, metric, model_mean, rule_mean), ...]}."""
+    out = {"above": [], "below": [], "equal to": []}
+    for fs in FEATURE_SETS:
+        for metric in METRIC_ORDER:
+            a = mean_of(summary, target, fs, method, metric)
+            b = mean_of(summary, target, RULE_FEATURE_SET, RULE_METHOD, metric)
+            out[relation(a, b)].append((fs, metric, a, b))
+    return out
+
+
+def count_phrase(cmp: dict) -> str:
+    """e.g. 'below in 12, equal in 2, above in 4 of 18 (feature set x metric) cells'."""
+    n = sum(len(v) for v in cmp.values())
+    parts = [f"{word.split()[0]} in {len(cmp[word])}" for word in ("below", "equal to", "above") if cmp[word]]
+    return f"{', '.join(parts)} of {n} (feature set x metric) cells"
+
+
+def not_beating_table(summary: pd.DataFrame, target: str) -> str:
+    """Every supervised (feature_set, metric) cell whose mean is not above the rule's."""
+    lines = ["| feature set | method | metric | model mean | rule mean | model is |", "|---|---|---|---|---|---|"]
+    fs_order, metric_order = list(FEATURE_SETS), list(METRIC_ORDER)
+    for method in ("hgb", "logreg"):
+        cmp = compare_to_rule(summary, target, method)
+        cells = sorted(cmp["below"] + cmp["equal to"], key=lambda c: (fs_order.index(c[0]), metric_order.index(c[1])))
+        for fs, metric, a, b in cells:
+            lines.append(f"| {fs} | {method} | {metric} | {a:.3f} | {b:.3f} | {relation(a, b)} the rule |")
+    if len(lines) == 2:
+        lines.append("| (none) | | | | | |")
+    return "\n".join(lines)
+
+
+def top_feature(summary: pd.DataFrame, target: str, feature_set: str):
+    """(feature, mean AP drop, largest other feature's drop) from hgb permutation importance."""
+    cols = FEATURE_SETS[feature_set]
+    vals = {
+        c: mean_of(summary, target, feature_set, "hgb", "perm_importance_ap:" + c, kind="permutation_importance")
+        for c in cols
+    }
+    best = max(cols, key=lambda c: vals[c])  # first in FEATURE_SETS order wins ties
+    others = [v for c, v in vals.items() if c != best]
+    return best, vals[best], (max(others) if others else float("nan"))
+
+
 def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
     n = len(data)
+    p, s = PRIMARY_TARGET, SECONDARY_TARGET
     pos = {t: int(data[LABEL_PREFIX + t].sum()) for t in TARGETS}
     ops = {t: rule_operating_point(data, t) for t in TARGETS}
-    pay7 = data.loc[data[LABEL_PREFIX + PRIMARY_TARGET] == 1, "n_payments"].value_counts().to_dict()
-    n_eq7 = int((data["n_payments"] == RULE_MAX_PAYMENTS + 1).sum())
+    is_p = (data[LABEL_PREFIX + p] == 1).to_numpy()
+    pay_counts = data.loc[is_p, "n_payments"].value_counts().sort_index()
+    # One payment count shared by every positive and by nobody else = the label is a lookup on n_payments.
+    sep_value = int(pay_counts.index[0]) if len(pay_counts) == 1 else None
+    n_with_sep = int((data["n_payments"] == sep_value).sum()) if sep_value is not None else 0
+    exact_fingerprint = sep_value is not None and n_with_sep == pos[p]
+
+    flagged = rule_scores(data["n_payments"]) == 1
+    other = flagged & ~is_p
+    other_sec = int((other & (data[LABEL_PREFIX + s] == 1).to_numpy()).sum())
+    other_pay = data.loc[other, "n_payments"]
+    rule = (RULE_FEATURE_SET, RULE_METHOD)
 
     def m(t, fs, meth, metric):
         return mean_of(summary, t, fs, meth, metric)
 
-    def imp(t, fs, feature):
-        return mean_of(summary, t, fs, "hgb", "perm_importance_ap:" + feature, kind="permutation_importance")
+    def vs(t, fs, meth, metric):
+        """e.g. '0.008 vs rule 0.161 (below)'."""
+        a, b = m(t, fs, meth, metric), m(t, *rule, metric)
+        return f"{a:.3f} vs rule {b:.3f} ({relation(a, b)})"
 
     def rng(t, fs, meth, metric):
         r = summary_row(summary, t, fs, meth, metric)
         return f"{r['min']:.2f}-{r['max']:.2f}"
 
-    p, s = PRIMARY_TARGET, SECONDARY_TARGET
+    # 1. How the primary label relates to the payment count.
+    pay_txt = ", ".join(f"{int(k)} (x{v})" for k, v in pay_counts.items())
+    if exact_fingerprint:
+        f1_head = f"**n_payments = {sep_value} alone identifies the planted anomaly.**"
+    else:
+        f1_head = "**Payment counts of the planted anomalies.**"
+    f1 = (
+        f"1. {f1_head} The {pos[p]} planted anomalies have n_payments = {pay_txt}"
+        + (f"; {n_with_sep} beneficiaries in total have exactly {sep_value}" if sep_value is not None else "")
+        + f". The rule `n_payments > {RULE_MAX_PAYMENTS}` flags {ops[p]['flagged']} beneficiaries, catching "
+        f"{ops[p]['tp']}/{ops[p]['positives']} (precision {ops[p]['precision']:.3f}). Of its other "
+        f"{int(other.sum())} flags, {other_sec} are other planted frauds in the answer key"
+        + (f" (n_payments {int(other_pay.min())}-{int(other_pay.max())})" if len(other_pay) else "")
+        + f"; against `{s}` the rule has precision {ops[s]['precision']:.3f} and recall {ops[s]['recall']:.3f}."
+    )
+
+    # 2. All features.
+    top, top_v, rest_v = top_feature(summary, p, "all")
+    f2 = (
+        f"2. **All features, primary target.** PR-AUC: HGB {m(p, 'all', 'hgb', 'pr_auc'):.3f}, "
+        f"Isolation Forest {m(p, 'all', 'isolation_forest', 'pr_auc'):.3f}, rule {m(p, *rule, 'pr_auc'):.3f}. "
+        f"HGB permutation importance: {top} mean AP drop {top_v:.3f}, largest other feature {rest_v:.3f}."
+    )
+    if exact_fingerprint and top == "n_payments":
+        f2 += (
+            f" Given finding 1, HGB is learning 'exactly {sep_value} payments', which is how the generator "
+            "planted the class, not a fraud insight."
+        )
+
+    # 3. Where the supervised models do not beat the rule (counts computed cell by cell).
+    cmp_hgb, cmp_lr, cmp_if = (compare_to_rule(summary, p, meth) for meth in MODEL_METHODS)
+    f3 = (
+        "3. **Where the supervised models do NOT beat the rule (primary target).** "
+        f"Against the rule, HGB is {count_phrase(cmp_hgb)}; logistic regression is {count_phrase(cmp_lr)}; "
+        f"Isolation Forest is {count_phrase(cmp_if)}. Logistic regression is monotone in each feature, so it "
+        "cannot express a single payment count. "
+        f"All features: PR-AUC {vs(p, 'all', 'logreg', 'pr_auc')}; at the 1% budget recall "
+        f"{vs(p, 'all', 'logreg', 'recall_at_1pct')} and precision {vs(p, 'all', 'logreg', 'precision_at_1pct')}; "
+        f"at the 5% budget recall {vs(p, 'all', 'logreg', 'recall_at_5pct')}. Without n_payments (`no_count`): "
+        f"1% recall {vs(p, 'no_count', 'logreg', 'recall_at_1pct')}, 5% recall "
+        f"{vs(p, 'no_count', 'logreg', 'recall_at_5pct')}. Every such cell is listed in "
+        "'Cells where a supervised model does not beat the rule' below."
+    )
+
+    # 4. Dropping only the count.
+    top4, top4_v, _ = top_feature(summary, p, "no_count")
+    f4 = (
+        "4. **Dropping n_payments alone.** total_amount = mean_amount x n_payments still carries the count. "
+        f"HGB PR-AUC {m(p, 'no_count', 'hgb', 'pr_auc'):.3f} (all features {m(p, 'all', 'hgb', 'pr_auc'):.3f}); "
+        f"top permutation-importance feature {top4} (AP drop {top4_v:.3f})."
+    )
+
+    # 5. Dropping count and total: what is left to learn.
+    med = data.groupby(is_p)[["mean_amount", "income", "amount_to_income"]].median()
+    hgb5 = m(p, "no_count_no_total", "hgb", "recall_at_5pct")
+    lr5 = m(p, "no_count_no_total", "logreg", "recall_at_5pct")
+    f5 = (
+        "5. **Without count and total (`no_count_no_total`).** PR-AUC: HGB "
+        f"{m(p, 'no_count_no_total', 'hgb', 'pr_auc'):.3f} (fold range {rng(p, 'no_count_no_total', 'hgb', 'pr_auc')}), "
+        f"logreg {m(p, 'no_count_no_total', 'logreg', 'pr_auc'):.3f}, Isolation Forest "
+        f"{m(p, 'no_count_no_total', 'isolation_forest', 'pr_auc'):.3f}, rule {m(p, *rule, 'pr_auc'):.3f}, "
+        f"random ≈ {pos[p] / n:.4f}. HGB precision at 1% {vs(p, 'no_count_no_total', 'hgb', 'precision_at_1pct')}; "
+        f"recall at 5% {vs(p, 'no_count_no_total', 'hgb', 'recall_at_5pct')}, and {relation(hgb5, lr5)} logreg "
+        f"({lr5:.3f}). What is left to learn: median mean_amount {med.loc[True, 'mean_amount']:.0f} for planted "
+        f"anomalies vs {med.loc[False, 'mean_amount']:.0f} for the rest, median income {med.loc[True, 'income']:.0f} "
+        f"vs {med.loc[False, 'income']:.0f}, median amount_to_income {med.loc[True, 'amount_to_income']:.2f} vs "
+        f"{med.loc[False, 'amount_to_income']:.2f}. With ~{pos[p] / n_splits:.0f} positives per fold the spread is "
+        "wide."
+    )
+
+    # 6. Secondary target.
+    budget_metrics = [mt for mt in METRIC_ORDER if "_at_" in mt]
+    hgb_budget = {mt: relation(m(s, "all", "hgb", mt), m(s, *rule, mt)) for mt in budget_metrics}
+    if all(r == "equal to" for r in hgb_budget.values()):
+        budget_txt = "At both budgets HGB (all) is equal to the rule on precision and recall"
+    else:
+        budget_txt = "At the budgets HGB (all) vs rule: " + ", ".join(f"{mt} {r}" for mt, r in hgb_budget.items())
+    f6 = (
+        f"6. **Secondary target (`{s}`).** PR-AUC: HGB (all) {vs(s, 'all', 'hgb', 'pr_auc')}, logreg (all) "
+        f"{vs(s, 'all', 'logreg', 'pr_auc')}, Isolation Forest (all) {vs(s, 'all', 'isolation_forest', 'pr_auc')}. "
+        f"{budget_txt} (precision at 5% {m(s, 'all', 'hgb', 'precision_at_5pct'):.3f} vs "
+        f"{m(s, *rule, 'precision_at_5pct'):.3f}, recall at 5% {m(s, 'all', 'hgb', 'recall_at_5pct'):.3f} vs "
+        f"{m(s, *rule, 'recall_at_5pct'):.3f}). Without count/total HGB PR-AUC is "
+        f"{m(s, 'no_count_no_total', 'hgb', 'pr_auc'):.3f}. Identity fraud (duplicates, shared accounts) is not "
+        "described by these per-beneficiary amount features; that is the job of the rule-based and fuzzy detectors."
+    )
+
     lines = [
         "# Supervised baseline vs Isolation Forest vs a one-line rule",
         "",
         "Generated by `python -m src.fraud_detection.supervised "
         f"--n-splits {n_splits} --n-repeats {n_repeats} --seed {seed}` from the tracked "
-        "`data/clean/*.csv` and `data/ground_truth_fraud_ids.csv`. Offline; deterministic.",
+        "`data/clean/*.csv` and `data/ground_truth_fraud_ids.csv`. Offline; deterministic. Every comparison "
+        f"word in the findings ('above', 'below', 'equal to') is computed from the means at {REPORT_DIGITS} "
+        "decimals.",
         "",
         "## Setup",
         "",
@@ -393,7 +552,7 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         f"`{s}` (secondary): {pos[s]} positives ({pos[s] / n:.2%}).",
         f"- {n_splits}-fold stratified CV repeated {n_repeats}x (seed {seed}) = {n_splits * n_repeats} test folds; "
         f"each `{p}` test fold holds only ~{pos[p] / n_splits:.0f} positives, so one hit moves recall by "
-        f"~{n_splits / pos[p]:.2f}. Cells are `mean ± std [min-max]` over folds.",
+        f"~{n_splits / max(pos[p], 1):.2f}. Cells are `mean ± std [min-max]` over folds.",
         "- A random ranking has PR-AUC ≈ prevalence "
         f"({pos[p] / n:.4f} primary, {pos[s] / n:.4f} secondary) and ROC-AUC 0.5.",
         "- `isolation_forest` is fit on the training fold without labels (300 trees, contamination 0.05, seed 42) "
@@ -402,52 +561,17 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         "",
         "## Plain-language findings",
         "",
-        f"1. **The planted anomaly is a payment-count artefact.** All {pos[p]} planted anomalies have "
-        f"n_payments = {', '.join(f'{k} (x{v})' for k, v in sorted(pay7.items()))}; {n_eq7} beneficiaries in total "
-        f"have exactly 7. The rule `n_payments > 6` flags {ops[p]['flagged']} beneficiaries, catching "
-        f"{ops[p]['tp']}/{ops[p]['positives']} (precision {ops[p]['precision']:.3f}). The other flags are not noise: against "
-        f"`{s}` the same rule has precision {ops[s]['precision']:.3f} (recall {ops[s]['recall']:.3f}), i.e. "
-        "they are other planted frauds (mostly shared-account victims paid 8-12 times).",
-        f"2. **With all features the supervised model looks perfect, for a trivial reason.** HGB PR-AUC "
-        f"{m(p, 'all', 'hgb', 'pr_auc'):.3f} vs Isolation Forest {m(p, 'all', 'isolation_forest', 'pr_auc'):.3f} "
-        f"vs rule {m(p, RULE_FEATURE_SET, RULE_METHOD, 'pr_auc'):.3f}. The trees learn 'exactly 7 payments', which "
-        "is how the generator planted them, not a fraud insight: permutation importance puts all of it on "
-        f"n_payments (mean AP drop {imp(p, 'all', 'n_payments'):.2f}; every other feature "
-        f"{max(imp(p, 'all', c) for c in FEATURE_COLUMNS if c != 'n_payments'):.2f}).",
-        f"3. **Where the supervised model does NOT beat the rule (primary target).** Logistic regression is "
-        "monotone in n_payments, so it cannot express 'exactly 7' and only ties the rule: PR-AUC "
-        f"{m(p, 'all', 'logreg', 'pr_auc'):.3f} vs rule {m(p, RULE_FEATURE_SET, RULE_METHOD, 'pr_auc'):.3f}, and "
-        f"recall at the 5% budget {m(p, 'all', 'logreg', 'recall_at_5pct'):.2f} vs rule "
-        f"{m(p, RULE_FEATURE_SET, RULE_METHOD, 'recall_at_5pct'):.2f}. Isolation Forest is below the rule on "
-        "every metric and every feature set.",
-        f"4. **Dropping n_payments alone hides little**, because total_amount = mean_amount x n_payments still "
-        f"encodes it: HGB PR-AUC {m(p, 'no_count', 'hgb', 'pr_auc'):.3f}, with total_amount now the top feature "
-        f"(AP drop {imp(p, 'no_count', 'total_amount'):.2f}).",
-        f"5. **Without count and total, what remains is weak and unstable.** PR-AUC: HGB "
-        f"{m(p, 'no_count_no_total', 'hgb', 'pr_auc'):.3f} (fold range "
-        f"{rng(p, 'no_count_no_total', 'hgb', 'pr_auc')}), logreg {m(p, 'no_count_no_total', 'logreg', 'pr_auc'):.3f}, "
-        f"Isolation Forest {m(p, 'no_count_no_total', 'isolation_forest', 'pr_auc'):.3f} (random ≈ "
-        f"{pos[p] / n:.4f}). HGB ranks a few anomalies very high (precision at 1% "
-        f"{m(p, 'no_count_no_total', 'hgb', 'precision_at_1pct'):.3f}) but at the 5% budget it recalls only "
-        f"{m(p, 'no_count_no_total', 'hgb', 'recall_at_5pct'):.2f} -- LESS than the rule "
-        f"({m(p, RULE_FEATURE_SET, RULE_METHOD, 'recall_at_5pct'):.2f}) and less than logreg "
-        f"({m(p, 'no_count_no_total', 'logreg', 'recall_at_5pct'):.2f}). The signal left is mean_amount and "
-        "amount_to_income (planted anomalies get higher amounts on lower incomes), real but not enough to find "
-        "them at a usable precision; with ~5 positives per fold the spread is wide.",
-        f"6. **Secondary target (any planted fraud): no gain where it matters.** PR-AUC rule "
-        f"{m(s, RULE_FEATURE_SET, RULE_METHOD, 'pr_auc'):.3f}, HGB (all) {m(s, 'all', 'hgb', 'pr_auc'):.3f}, "
-        f"logreg (all) {m(s, 'all', 'logreg', 'pr_auc'):.3f}, Isolation Forest (all) "
-        f"{m(s, 'all', 'isolation_forest', 'pr_auc'):.3f}. At the 1% and 5% budgets HGB and the rule are "
-        f"identical (precision {m(s, 'all', 'hgb', 'precision_at_5pct'):.2f} vs "
-        f"{m(s, RULE_FEATURE_SET, RULE_METHOD, 'precision_at_5pct'):.2f}, recall at 5% "
-        f"{m(s, 'all', 'hgb', 'recall_at_5pct'):.3f} vs {m(s, RULE_FEATURE_SET, RULE_METHOD, 'recall_at_5pct'):.3f}): "
-        "both just pick high payment counts. The small PR-AUC edge comes from ordering the rest of the list. "
-        f"Without count/total HGB drops to {m(s, 'no_count_no_total', 'hgb', 'pr_auc'):.3f}. Identity fraud is "
-        "invisible to these features and is the job of the rule-based and fuzzy detectors.",
+        f1,
+        f2,
+        f3,
+        f4,
+        f5,
+        f6,
         "",
-        "Bottom line: on this synthetic data the supervised model's edge is the generator's fingerprint "
-        "(exactly 7 payments). It is a ceiling for these features, not evidence that a supervised model would "
-        "work on real cases, where labels are scarce and fraud patterns move.",
+        "Bottom line: a supervised score here is a ceiling for these features on synthetic labels, not evidence "
+        "that a supervised model would work on real cases, where labels are scarce and fraud patterns move. "
+        f"On the primary target HGB PR-AUC is {m(p, 'all', 'hgb', 'pr_auc'):.3f} with all features and "
+        f"{m(p, 'no_count_no_total', 'hgb', 'pr_auc'):.3f} once the payment count and total are removed.",
         "",
         f"## Primary target: `{p}`",
         "",
@@ -456,6 +580,18 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         f"## Secondary target: `{s}`",
         "",
         metric_table(summary, s),
+        "",
+        "## Cells where a supervised model does not beat the rule",
+        "",
+        f"Means compared at {REPORT_DIGITS} decimals; both 'below' and 'equal to' cells are listed.",
+        "",
+        f"### `{p}`",
+        "",
+        not_beating_table(summary, p),
+        "",
+        f"### `{s}`",
+        "",
+        not_beating_table(summary, s),
         "",
         "## Permutation importance (HGB, test folds, drop in average precision)",
         "",
@@ -470,13 +606,17 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         "## Leakage guard",
         "",
         "Features are built by `isolation_forest.build_features` before the answer key is read; labels are "
-        "attached afterwards as `y_*` columns. `assert_no_leakage` runs on every feature set and rejects "
-        "answer-key columns, `y_*` labels, identifiers (`row_id`, `beneficiary_id`) and anything outside "
+        "attached afterwards as `y_*` columns. `assert_no_leakage` runs on every feature set inside `run_cv` and "
+        "rejects answer-key columns, `y_*` labels, identifiers (`row_id`, `beneficiary_id`) and anything outside "
         "`FEATURE_COLUMNS`. Pinned by `tests/test_supervised.py`.",
         "",
         "## Caveats",
         "",
-        "- 25 positives: fold-level numbers move in steps of ~0.2 recall; trust the spread, not the third decimal.",
+        f"- {pos[p]} positives: fold-level numbers move in steps of ~{n_splits / max(pos[p], 1):.2f} recall; "
+        "trust the spread, not the third decimal.",
+        f"- Isolation Forest here is fit per training fold (~{n * (n_splits - 1) / n_splits:.0f} rows), not on the "
+        "whole scored population as `isolation_forest.fit_and_score` does, so its numbers are not the project's "
+        "Isolation Forest run.",
         "- The CSV has no DB `row_id`; file order stands in for it (only used to pick one row per duplicated "
         "beneficiary_id). Results can differ slightly from the DB-backed Isolation Forest run.",
         "- `any_planted` labels only beneficiaries named in the answer key; hub-account owners are not listed "
