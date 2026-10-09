@@ -1,0 +1,66 @@
+{
+  "row_counts": {
+    "beneficiaries": 15190,
+    "national_id_records": 15040,
+    "disbursements": 55549,
+    "fraud_signals": 15520,
+    "record_linkage_matches": 87
+  },
+  "dq_flag_rates": {
+    "beneficiaries": {
+      "income_flag": 0.0488,
+      "phone_missing": 0.0591,
+      "address_missing": 0.0423,
+      "is_duplicate_row": 0.0197
+    },
+    "disbursements": {
+      "amount_flag": 0.0199,
+      "payment_method_missing": 0.0184,
+      "disb_date_parse_failed": 0.0
+    }
+  },
+  "signals_by_type": [
+    {
+      "method": "fuzzy_linkage",
+      "signal_type": "fuzzy_duplicate_identity",
+      "n_beneficiaries": 82
+    },
+    {
+      "method": "isolation_forest",
+      "signal_type": "multivariate_anomaly",
+      "n_beneficiaries": 412
+    },
+    {
+      "method": "rule_based",
+      "signal_type": "cnic_mismatch",
+      "n_beneficiaries": 986
+    },
+    {
+      "method": "rule_based",
+      "signal_type": "duplicate_cycle_payment",
+      "n_beneficiaries": 596
+    },
+    {
+      "method": "rule_based",
+      "signal_type": "orphaned_disbursement",
+      "n_beneficiaries": 25
+    },
+    {
+      "method": "rule_based",
+      "signal_type": "payment_to_inactive_beneficiary",
+      "n_beneficiaries": 346
+    },
+    {
+      "method": "rule_based",
+      "signal_type": "shared_bank_account",
+      "n_beneficiaries": 1079
+    }
+  ],
+  "queue_size": 2483,
+  "queue_by_families": {
+    "1": 2045,
+    "2": 407,
+    "3": 31
+  },
+  "not_in_registry": 25
+}

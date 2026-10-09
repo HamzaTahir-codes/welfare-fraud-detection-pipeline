@@ -5,12 +5,20 @@ __pycache__/
 .env
 data/raw/*.csv
 data/clean/*.csv
-data/staging/*.csv
+# current cleaned outputs are tracked deliberately; timestamped run copies are not
+!data/clean/beneficiaries_cleaned.csv
+!data/clean/beneficiary_national_id_joined.csv
+!data/clean/disbursements_cleaned.csv
+!data/clean/national_id_cleaned.csv
 data/staging/*.csv
 airflow/airflow.db
 airflow/logs/
 data/reports/*.html
 data/staging/*.json
-data/dashboard/
+# keep one published snapshot in git so the dashboard can be hosted without the pipeline
+data/dashboard/*
+!data/dashboard/latest.json
+!data/dashboard/20260922052809/
+data/isolation_forest_scores*.csv
 .claude/settings.local.json
 CLAUDE.local.md
