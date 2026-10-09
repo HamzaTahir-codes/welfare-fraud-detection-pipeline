@@ -281,9 +281,16 @@ snapshot** written by the last Airflow task, not live Postgres, so what you demo
 | **Report** | The full narrative report, in-app |
 | **Glossary** | Plain-language definitions of every term used |
 
-The investigation queue ranks by the **number of distinct evidence families** that flagged someone (validated families first,
-then all families, then highest score), not by summed scores, precisely because `duplicate_cycle_payment` and
-`shared_bank_account` are not independent. Every run also writes a self-contained HTML report
+The investigation queue ranks by an **evidence score** (`src/dashboard/ranking.py`): each signal is weighted by its measured
+precision from Stage 8 (add-one smoothed; strict for `shared_bank_account`, whose hub owner is not in the answer key,
+plain for `fuzzy_duplicate_identity`, whose pair members both are), heuristic signals with no answer key get a low fixed
+prior (2%; 1% for `cnic_mismatch`, a value picked after looking at the results), only the strongest signal per evidence
+family counts (because `duplicate_cycle_payment` and `shared_bank_account` are not independent), and families are
+combined with a noisy-OR. On the tracked snapshot, precision@k against the planted answer key goes from
+100/100/73.0/87.2/93.6/96.8% to 100/100/98.0/98.4/97.8/98.9% at k = 25/50/100/250/500/1000. The weights are measured on
+that same answer key, so these numbers are in-sample and optimistic. `python -m src.dashboard.rerank` re-ranks an
+existing snapshot offline, `python -m src.dashboard.evaluation` prints precision@k (`--legacy` for the old order,
+`--sensitivity` for alternative weightings). Every run also writes a self-contained HTML report
 (`data/reports/fraud_report_latest.html`) built from the same snapshot, with numbers computed from the data and template-based
 explanations.
 

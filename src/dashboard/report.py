@@ -249,8 +249,9 @@ def s_queue(data) -> str:
         f'<div class="callout">{e(ins.queue_takeaway(data))}</div>'
         "<p>Every flagged beneficiary appears once. Signals that tend to fire for the same reason are grouped "
         "into five evidence families, and scores are never added up, so correlated signals cannot inflate a case. "
-        "Beneficiaries are ranked by how many validated families flag them, then by how many families in total, "
-        "then by their highest score.</p>"
+        "Beneficiaries are ranked by an evidence score: each signal is weighted by its measured precision "
+        "(or a low prior for heuristics), the strongest signal per family counts, and families are combined "
+        "with a noisy-OR.</p>"
         f"<h3>The five evidence families</h3><ul>{fam}</ul>"
         "<h3>Top 15 cases</h3>"
         "<table><tr><th>Rank</th><th>Beneficiary</th><th>Validated / all families</th>"

@@ -28,6 +28,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.dashboard import insights as ins  # noqa: E402
+from src.dashboard.evaluation import (  # noqa: E402
+    MIN_ANSWER_KEY_COVERAGE,
+    answer_key_coverage,
+    load_planted_ids,
+    precision_at_k,
+)
 from src.dashboard.report import build_report  # noqa: E402
 
 SNAPSHOT_ROOT = ROOT / "data" / "dashboard"
@@ -291,11 +297,57 @@ def page_queue(data: dict, snapshot_id: str):
             "beneficiary appears once.",
             "Signals that tend to fire for the same reason are grouped into five kinds of evidence (families), "
             "and scores are never added up, so correlated signals cannot inflate a case.",
-            "Ranking: first by how many validated kinds of evidence flag the person, then by how many kinds in "
-            "total, then by their highest score.",
+            "Ranking: each signal is weighted by how often it is right. Signals graded against the planted "
+            "answer key use their measured precision (counting a hit the same way the answer key names fraud); "
+            "heuristic signals with no answer key get a low, fixed prior instead. Within a kind of evidence only "
+            "the strongest signal counts, and the kinds are combined so that independent evidence adds up but can "
+            "never exceed 100% (a noisy-OR). The result is "
+            "the evidence_score column. Ties are broken by how many validated kinds of evidence flag the person, "
+            "then how many kinds in total, then their highest score.",
         ],
     )
     st.info(ins.queue_takeaway(data))
+
+    st.subheader("How good is the top of the queue?")
+    st.caption("Precision@k, measured against the planted answer key")
+    planted = load_planted_ids(ROOT / "data" / "ground_truth_fraud_ids.csv")
+    if planted is None:
+        st.caption("The planted answer key (data/ground_truth_fraud_ids.csv) was not found, so this is not shown.")
+    else:
+        coverage = answer_key_coverage(q, planted)
+        if coverage < MIN_ANSWER_KEY_COVERAGE:
+            st.warning(
+                f"Only {ins.pct(coverage, 1)} of the planted ids appear in this queue, so the answer key in "
+                "data/ground_truth_fraud_ids.csv probably comes from a different generator run than this "
+                "snapshot. The numbers below are not meaningful for it."
+            )
+        pk = precision_at_k(q, planted)
+        st.dataframe(
+            pd.DataFrame(
+                {
+                    "top k of the queue": pk["k"],
+                    "planted fraud in top k": pk["n_planted"],
+                    "precision@k": pk["precision"].map(lambda p: ins.pct(p, 1)),
+                }
+            ),
+            hide_index=True,
+        )
+        st.caption(
+            "Of the first k people in the queue, the share that are planted fraud. The answer key is used here "
+            "for grading only, never for ranking. But the signal weights are precisions measured on the same "
+            "answer key (and the cnic_mismatch prior was chosen after looking at these results), so these "
+            f"numbers are in-sample and optimistic. {ins.pct(coverage, 1)} of the planted ids appear somewhere "
+            "in this queue."
+        )
+    weights = data["kpis"].get("ranking_weights")
+    if weights:
+        with st.expander("Weight each signal gets in the ranking"):
+            st.caption(
+                "source 'measured': precision graded against the planted answer key ('column' says which Stage 8 "
+                "reading), smoothed so a small perfect sample is not treated as certainty. source 'prior': a "
+                "fixed, deliberately low guess for a heuristic with no answer key."
+            )
+            st.dataframe(pd.DataFrame(weights), hide_index=True)
     with st.expander("The five kinds of evidence"):
         for fam, meaning in ins.FAMILY_EXPLANATIONS.items():
             st.markdown(f"- **{fam}**: {meaning}")
@@ -328,6 +380,9 @@ def page_queue(data: dict, snapshot_id: str):
         view,
         hide_index=True,
         column_config={
+            "evidence_score": st.column_config.ProgressColumn(
+                "evidence_score", min_value=0.0, max_value=1.0, format="%.4f"
+            ),
             "max_score": st.column_config.ProgressColumn("max_score", min_value=0.0, max_value=1.0, format="%.2f"),
         },
     )

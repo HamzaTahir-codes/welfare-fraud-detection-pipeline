@@ -342,17 +342,32 @@ def executive_summary(data: dict) -> list:
 
 
 def queue_takeaway(data: dict) -> str:
+    """One sentence on the strongest cases, computed from the queue's actual ranks
+    (so it stays true whatever the ranking rule puts first)."""
     q = data["queue"]
-    n = int((q["n_validated_families"] >= 2).sum())
-    if n:
-        return (
-            f"{n:,} beneficiaries are flagged by two or more validated kinds of evidence. "
-            "They sit at the top of the queue and should be investigated first."
+    ranks = q["rank"] if "rank" in q.columns else pd.Series(range(1, len(q) + 1), index=q.index)
+    multi = ranks[q["n_validated_families"] >= 2]
+    if "evidence_score" in q.columns:
+        rule = (
+            "The queue is ordered by evidence score (how often each signal is right, with independent kinds "
+            "of evidence combined), so one very reliable signal can rank above two weaker ones."
         )
-    return (
-        "No beneficiary is flagged by two or more validated kinds of evidence. "
-        "The queue is ranked by how many kinds of evidence, validated ones first."
-    )
+    else:
+        rule = (
+            "This older snapshot is ordered by how many validated kinds of evidence flag a person, "
+            "then how many kinds in total."
+        )
+    if multi.empty:
+        return f"No beneficiary is flagged by two or more validated kinds of evidence. {rule}"
+    lo, hi = int(multi.min()), int(multi.max())
+    if len(multi) == 1:
+        head = f"1 beneficiary is flagged by two or more validated kinds of evidence; it is at rank {lo:,}"
+    else:
+        head = (
+            f"{len(multi):,} beneficiaries are flagged by two or more validated kinds of evidence; "
+            f"the highest of them is at rank {lo:,} and the lowest at rank {hi:,}"
+        )
+    return f"{head} (of {len(q):,}). {rule}"
 
 
 def why_flagged(signal_types: str) -> str:

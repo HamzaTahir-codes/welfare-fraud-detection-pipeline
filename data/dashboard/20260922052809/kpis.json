@@ -62,5 +62,79 @@
     "2": 407,
     "3": 31
   },
-  "not_in_registry": 25
+  "not_in_registry": 25,
+  "ranking_weights": [
+    {
+      "signal_type": "orphaned_disbursement",
+      "detector": "rule:orphaned_disbursement",
+      "source": "measured",
+      "column": "precision_strict",
+      "n_flagged": 25,
+      "precision": 1.0,
+      "weight": 0.962963
+    },
+    {
+      "signal_type": "shared_bank_account",
+      "detector": "rule:shared_bank_account",
+      "source": "measured",
+      "column": "precision_strict",
+      "n_flagged": 1079,
+      "precision": 0.8489341983317887,
+      "weight": 0.848289
+    },
+    {
+      "signal_type": "fuzzy_duplicate_identity",
+      "detector": "fuzzy:duplicate_identity",
+      "source": "measured",
+      "column": "precision",
+      "n_flagged": 82,
+      "precision": 0.951219512195122,
+      "weight": 0.940476
+    },
+    {
+      "signal_type": "multivariate_anomaly",
+      "detector": "iforest:layered",
+      "source": "measured",
+      "column": "precision_strict",
+      "n_flagged": 412,
+      "precision": 0.0485436893203883,
+      "weight": 0.050725
+    },
+    {
+      "signal_type": "cnic_mismatch",
+      "detector": "rule:cnic_mismatch",
+      "source": "prior",
+      "column": null,
+      "n_flagged": 986,
+      "precision": null,
+      "weight": 0.01
+    },
+    {
+      "signal_type": "duplicate_cycle_payment",
+      "detector": "rule:duplicate_cycle_payment",
+      "source": "prior",
+      "column": null,
+      "n_flagged": 596,
+      "precision": null,
+      "weight": 0.02
+    },
+    {
+      "signal_type": "payment_to_inactive_beneficiary",
+      "detector": "rule:payment_to_inactive_beneficiary",
+      "source": "prior",
+      "column": null,
+      "n_flagged": 346,
+      "precision": null,
+      "weight": 0.02
+    },
+    {
+      "signal_type": "duplicate_cnic_multiple_identities",
+      "detector": "rule:duplicate_cnic_multiple_identities",
+      "source": "prior",
+      "column": null,
+      "n_flagged": 0,
+      "precision": null,
+      "weight": 0.02
+    }
+  ]
 }
