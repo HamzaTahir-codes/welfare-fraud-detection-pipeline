@@ -4,7 +4,6 @@ This module is responsible for loading the cleaned and transformed data into the
 The loader stage is a critical part of the ETL (Extract, Transform, Load) pipeline as it finalizes the data processing by persisting the cleaned data into the database for further analysis and reporting.
 """
 
-import logging
 import sys
 import os
 import pandas as pd
@@ -18,8 +17,8 @@ project_root = os.path.abspath(os.path.join(current_dir, ".."))
 if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
-from psycopg2.extras import execute_values
-from src.database.connection import get_connection
+from psycopg2.extras import execute_values  # noqa: E402
+from src.database.connection import get_connection  # noqa: E402
 
 
 def clean_flags_column(df, column="data_quality_flags"):

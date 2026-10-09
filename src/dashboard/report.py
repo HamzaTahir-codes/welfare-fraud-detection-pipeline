@@ -103,7 +103,9 @@ def s_summary(data) -> str:
     ]
     tiles_html = (
         '<div class="tiles">'
-        + "".join(f'<div class="tile"><div class="n">{e(n)}</div><div class="l">{e(l)}</div></div>' for n, l in tiles)
+        + "".join(
+            f'<div class="tile"><div class="n">{e(n)}</div><div class="l">{e(label)}</div></div>' for n, label in tiles
+        )
         + "</div>"
     )
     return section(1, "Summary", tiles_html + ul(ins.executive_summary(data)))

@@ -1,0 +1,6 @@
+# Dependencies for hosting only the dashboard (e.g. Streamlit Community Cloud).
+# Cloud looks for a requirements file next to the entrypoint before the repo root,
+# so this keeps the hosted app off the full pipeline stack.
+streamlit>=1.37
+pandas>=2.0,<3
+plotly>=5

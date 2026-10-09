@@ -5,6 +5,10 @@ extend-exclude = ["notebooks", "data", "airflow/logs"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+  "E712",  # `df[col] == False` is an element-wise pandas comparison; `not df[col]` would be wrong
+  "B905",  # zip() without strict=; lengths are equal by construction throughout
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

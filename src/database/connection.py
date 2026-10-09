@@ -34,4 +34,4 @@ def get_connection():
         )
         return connection
     except OperationalError as e:
-        raise OperationalError(f"Failed to connect to the database: {e}")
+        raise OperationalError(f"Failed to connect to the database: {e}") from e

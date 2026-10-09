@@ -27,7 +27,6 @@ Approach:
 - GROUND_TRUTH_PATH assumes project-root location, per your Stage 1 setup.
 """
 
-import uuid
 from pathlib import Path
 
 import pandas as pd

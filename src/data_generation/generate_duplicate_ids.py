@@ -80,7 +80,7 @@ def perturb_name(name: str) -> str:
     idx = random.randrange(len(words))
     word = list(words[idx])
     if len(word) < 3:
-        words[idx] = word_str = "".join(word)
+        words[idx] = "".join(word)
         return " ".join(words)
 
     op = random.choice(["swap", "insert", "delete"])

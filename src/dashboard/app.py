@@ -246,7 +246,7 @@ def page_comparison(data: dict, snapshot_id: str):
 
     st.subheader("Which method catches which planted pattern (recall)")
     st.caption(
-        "Each cell is the share of that planted pattern the method found. Bright means it finds it, dark means it misses it."
+        "Each cell is the share of that planted pattern the method found. Dark means it finds it, light means it misses it."
     )
     coverage = data["coverage"]
     shown = False

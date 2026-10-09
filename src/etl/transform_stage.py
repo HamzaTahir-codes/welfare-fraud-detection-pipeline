@@ -155,7 +155,6 @@ def clean_beneficiaries(df):
         pd.DataFrame: A new DataFrame with cleaned beneficiaries data.
     """
     df = df.copy()
-    data_quality_flags = []  # collect flag column names added, for logging/summary later
 
     df["gender_clean"] = standardize_categorical(df["gender"], GENDER_MAPPING)
     df["status_clean"] = standardize_categorical(df["status"], STATUS_MAPPING_BENEFICIARY)
@@ -201,7 +200,6 @@ def clean_national_id_records(df):
         pd.DataFrame: A new DataFrame with cleaned national ID records data.
     """
     df = df.copy()
-    data_quality_flags = []  # collect flag column names added, for logging/summary later
 
     df["gender_clean"] = standardize_categorical(df["gender"], GENDER_MAPPING)
     df["date_of_birth_clean"], df["dob_parse_failed"] = parse_date_flexible(df["date_of_birth"])
@@ -232,7 +230,6 @@ def clean_disbursements(df):
         pd.DataFrame: A new DataFrame with cleaned disbursements data.
     """
     df = df.copy()
-    data_quality_flags = []  # collect flag column names added, for logging/summary later
 
     df["status_clean"] = standardize_categorical(df["status"], STATUS_MAPPING_DISBURSEMENT)
     df["disbursement_date_clean"], df["disb_date_parse_failed"] = parse_date_flexible(df["disbursement_date"])

@@ -305,7 +305,6 @@ def describe_detector(row: pd.Series) -> str:
 
 def executive_summary(data: dict) -> list:
     q, m = data["queue"], data["manifest"]
-    k = data["kpis"]
     ts = format_ts(m["published_at"])
     lines = [
         f"This summary describes pipeline snapshot {m['snapshot_id']}, published {ts}.",

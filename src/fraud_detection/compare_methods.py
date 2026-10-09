@@ -257,7 +257,10 @@ def build_detectors(
     )
 
     # ---- Stage 7: Isolation Forest ----
-    is_if = lambda m: m.str.startswith(IF_METHOD_PREFIX)
+
+    def is_if(m):
+        return m.str.startswith(IF_METHOD_PREFIX)
+
     if_sig = select_run(signals, is_if, if_run_id, "isolation_forest")
     if_flagged = (
         signals_to_beneficiaries(if_sig, ben_map, disb_map, known_ids, "isolation_forest") if len(if_sig) else set()
