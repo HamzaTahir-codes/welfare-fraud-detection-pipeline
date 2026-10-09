@@ -16,6 +16,8 @@
 # under the License.
 #
 
+# Modified from the official Apache Airflow 2.10.5 docker-compose.yaml for this project; see NOTICE.md.
+#
 # Basic Airflow cluster configuration for CeleryExecutor with Redis and PostgreSQL.
 #
 # WARNING: This configuration is for local development. Do not use it in a production deployment.
