@@ -231,6 +231,10 @@ address boilerplate, and choose the flagging threshold by sweeping 0.50–0.99 f
   0.576–0.993 (median 0.961) and the best non-match scored 0.540.
 - **Without stopword stripping**, true pairs and unrelated same-birthday pairs overlapped heavily. Shared boilerplate tokens
   ("Muhammad", "House", "Street") were doing the matching.
+- **A typo in the date of birth no longer hides a duplicate.** A second blocking pass on a normalised name key catches
+  pairs whose birth dates differ. With a one-digit DOB typo planted on all 40 duplicates, DOB-only blocking finds 0 / 40;
+  two-pass blocking finds 39 / 40 (F1 0.963). On the current data it changes nothing (4,619 vs 4,567 candidate pairs, same
+  F1). Reproduce offline: `python -m src.fraud_detection.fuzzy_record --from-csv --blocking multi --simulate-dob-typos 42`.
 
 </details>
 
@@ -247,6 +251,10 @@ no ground truth, are ever shown to the model (contamination 0.05, 300 trees, see
   database. Result: 20 / 25 at 5% flagged (on the 5,000-beneficiary run: 21 / 25 at 5%, 25 / 25 at 10%, ROC-AUC 0.972).
 - The evaluation reports a contamination sweep, ROC-AUC and average precision, and a breakdown of everything the model flagged,
   because "unusual" is not the same as "the one pattern we planted".
+- **Supervised reference point** (`python -m src.fraud_detection.supervised`, offline): gradient boosting trained on the answer
+  key reaches PR-AUC 1.000, but only by learning "exactly 7 payments", which is how the anomalies were planted. With the
+  payment count and total removed it drops to 0.292 (fold range 0.01–0.61) versus Isolation Forest's 0.019.
+  Full write-up: [`data/results/supervised_report.md`](data/results/supervised_report.md).
 
 </details>
 
