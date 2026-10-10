@@ -129,6 +129,11 @@ IDENTIFIER_COLUMNS = {"row_id", "beneficiary_id"}
 # ---------------------------------------------------------------------
 
 
+def load_accounts(ben_path=BENEFICIARIES_PATH) -> pd.DataFrame:
+    """beneficiary_id -> bank_account_number, only for the report's hub-owner count."""
+    return pd.read_csv(ben_path, dtype=str, usecols=["beneficiary_id", "bank_account_number"])
+
+
 def load_clean_inputs(ben_path=BENEFICIARIES_PATH, disb_path=DISBURSEMENTS_PATH):
     """Read the tracked cleaned CSVs into the shape isolation_forest.load_inputs returns."""
     df_ben = pd.read_csv(ben_path, dtype=str, usecols=["beneficiary_id", "monthly_income_clean"])
@@ -151,6 +156,53 @@ def answer_key_sets(gt: pd.DataFrame) -> dict:
         if col in gt.columns:
             named |= set(gt[col].dropna())
     return {PRIMARY_TARGET: mv, SECONDARY_TARGET: named}
+
+
+def answer_key_roles(gt: pd.DataFrame, ben_accounts: pd.DataFrame = None) -> dict:
+    """{fraud_type: beneficiary_ids named in any id column of that type's rows}, plus
+    'hub_owner': account holders of planted shared accounts, as compare_methods.build_truth
+    counts them in `involved`. Report context only, never features."""
+    roles = {}
+    for fraud_type, rows in gt.groupby("fraud_type"):
+        ids = set()
+        for col in ("beneficiary_id", "original_beneficiary_id", "duplicate_beneficiary_id"):
+            if col in rows.columns:
+                ids |= set(rows[col].dropna())
+        roles[fraud_type] = ids
+    if ben_accounts is not None and "bank_account_number" in gt.columns:
+        hubs = set(gt.loc[gt["fraud_type"] == "shared_account", "bank_account_number"].dropna())
+        roles["hub_owner"] = set(
+            ben_accounts.loc[ben_accounts["bank_account_number"].isin(hubs), "beneficiary_id"].dropna()
+        )
+    return roles
+
+
+def role_breakdown(ids, roles: dict) -> str:
+    """e.g. '570 shared_account (1 of them also duplicate_identity)': planted ids by fraud type."""
+    ids = set(ids)
+    types = [t for t in sorted(roles) if t != "hub_owner"]
+    hits = {t: ids & roles[t] for t in types if ids & roles[t]}
+    if not hits:
+        return "none of them in the answer key"
+    # each id is counted once, under its largest type; overlaps are noted, not double counted
+    parts, counted = [], set()
+    for t, members in sorted(hits.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        new = members - counted
+        if not new:
+            continue
+        counted |= new
+        also = {o: len(new & roles[o]) for o in types if o != t and new & roles[o]}
+        extra = "; ".join(f"{n} of them also {o}" for o, n in also.items())
+        parts.append(f"{len(new)} {t}" + (f" ({extra})" if extra else ""))
+    return ", ".join(parts)
+
+
+def budget_ceiling(n_positives: int, n: int, budget: float, n_splits: int = 1) -> float:
+    """Highest recall any ranking can reach at `budget`, computed like fold_metrics does: each of
+    n_splits stratified test folds flags round(budget * fold size) rows and holds ~1/n_splits of
+    the positives."""
+    k = round(budget * n / n_splits)
+    return min(1.0, k / max(n_positives / n_splits, 1e-9))
 
 
 def attach_labels(feats: pd.DataFrame, gt: pd.DataFrame) -> pd.DataFrame:
@@ -419,7 +471,8 @@ def top_feature(summary: pd.DataFrame, target: str, feature_set: str):
     return best, vals[best], (max(others) if others else float("nan"))
 
 
-def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
+def write_report(summary, data, n_splits, n_repeats, seed, path, roles=None) -> None:
+    """roles: answer_key_roles() output; without it the fraud-type breakdowns are left out."""
     n = len(data)
     p, s = PRIMARY_TARGET, SECONDARY_TARGET
     pos = {t: int(data[LABEL_PREFIX + t].sum()) for t in TARGETS}
@@ -434,6 +487,11 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
     flagged = rule_scores(data["n_payments"]) == 1
     other = flagged & ~is_p
     other_sec = int((other & (data[LABEL_PREFIX + s] == 1).to_numpy()).sum())
+    n_other = int(other.sum())
+    share = f"all {n_other}" if other_sec == n_other else f"{other_sec}"
+    other_txt = f"{share} are other planted frauds in the answer key"
+    if roles:
+        other_txt += f": {role_breakdown(data.loc[other, 'beneficiary_id'], roles)},"
     other_pay = data.loc[other, "n_payments"]
     rule = (RULE_FEATURE_SET, RULE_METHOD)
 
@@ -460,8 +518,8 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         + (f"; {n_with_sep} beneficiaries in total have exactly {sep_value}" if sep_value is not None else "")
         + f". The rule `n_payments > {RULE_MAX_PAYMENTS}` flags {ops[p]['flagged']} beneficiaries, catching "
         f"{ops[p]['tp']}/{ops[p]['positives']} (precision {ops[p]['precision']:.3f}). Of its other "
-        f"{int(other.sum())} flags, {other_sec} are other planted frauds in the answer key"
-        + (f" (n_payments {int(other_pay.min())}-{int(other_pay.max())})" if len(other_pay) else "")
+        f"{n_other} flags, {other_txt}"
+        + (f" with n_payments {int(other_pay.min())}-{int(other_pay.max())}" if len(other_pay) else "")
         + f"; against `{s}` the rule has precision {ops[s]['precision']:.3f} and recall {ops[s]['recall']:.3f}."
     )
 
@@ -526,12 +584,27 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         budget_txt = "At both budgets HGB (all) is equal to the rule on precision and recall"
     else:
         budget_txt = "At the budgets HGB (all) vs rule: " + ", ".join(f"{mt} {r}" for mt, r in hgb_budget.items())
+    rule_share = ops[s]["flagged"] / n
+    saturated = [b for b in BUDGETS if ops[s]["precision"] == 1.0 and rule_share >= b]
+    saturation_txt = ""
+    if saturated:
+        ceilings = "; ".join(
+            f"{int(b * 100)}%: precision 1.000, recall ceiling {budget_ceiling(pos[s], n, b, n_splits):.3f}"
+            for b in saturated
+        )
+        budget_names = " and ".join(f"{int(b * 100)}%" for b in saturated)
+        saturation_txt = (
+            f" These budget numbers are saturated, not evidence about the models: the rule flags "
+            f"{rule_share:.2%} of beneficiaries with precision {ops[s]['precision']:.3f}, more than the "
+            f"{budget_names} budget{'s' if len(saturated) > 1 else ''}, so any method that ranks those people "
+            f"first reaches the best possible values ({ceilings}). Compare models on PR-AUC instead."
+        )
     f6 = (
         f"6. **Secondary target (`{s}`).** PR-AUC: HGB (all) {vs(s, 'all', 'hgb', 'pr_auc')}, logreg (all) "
         f"{vs(s, 'all', 'logreg', 'pr_auc')}, Isolation Forest (all) {vs(s, 'all', 'isolation_forest', 'pr_auc')}. "
         f"{budget_txt} (precision at 5% {m(s, 'all', 'hgb', 'precision_at_5pct'):.3f} vs "
         f"{m(s, *rule, 'precision_at_5pct'):.3f}, recall at 5% {m(s, 'all', 'hgb', 'recall_at_5pct'):.3f} vs "
-        f"{m(s, *rule, 'recall_at_5pct'):.3f}). Without count/total HGB PR-AUC is "
+        f"{m(s, *rule, 'recall_at_5pct'):.3f}).{saturation_txt} Without count/total HGB PR-AUC is "
         f"{m(s, 'no_count_no_total', 'hgb', 'pr_auc'):.3f}. Identity fraud (duplicates, shared accounts) is not "
         "described by these per-beneficiary amount features; that is the job of the rule-based and fuzzy detectors."
     )
@@ -541,9 +614,9 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         "",
         "Generated by `python -m src.fraud_detection.supervised "
         f"--n-splits {n_splits} --n-repeats {n_repeats} --seed {seed}` from the tracked "
-        "`data/clean/*.csv` and `data/ground_truth_fraud_ids.csv`. Offline; deterministic. Every comparison "
-        f"word in the findings ('above', 'below', 'equal to') is computed from the means at {REPORT_DIGITS} "
-        "decimals.",
+        "`data/clean/*.csv` and `data/ground_truth_fraud_ids.csv`. Offline; deterministic. Every number and "
+        f"every comparison word in the findings ('above', 'below', 'equal to', 'all', 'saturated') is computed "
+        f"from the data at {REPORT_DIGITS} decimals; the remaining sentences are fixed methodology notes.",
         "",
         "## Setup",
         "",
@@ -619,8 +692,15 @@ def write_report(summary, data, n_splits, n_repeats, seed, path) -> None:
         "Isolation Forest run.",
         "- The CSV has no DB `row_id`; file order stands in for it (only used to pick one row per duplicated "
         "beneficiary_id). Results can differ slightly from the DB-backed Isolation Forest run.",
-        "- `any_planted` labels only beneficiaries named in the answer key; hub-account owners are not listed "
-        "there and count as negatives.",
+        "- `any_planted` labels only beneficiaries named in the answer key (victims, orphan IDs, duplicate "
+        "originals and duplicates, planted anomalies). `compare_methods.build_truth` also counts hub-account "
+        "holders as `involved` in shared-account fraud; "
+        + (
+            f"{len((roles['hub_owner'] & set(data['beneficiary_id'])) - set(data.loc[data[LABEL_PREFIX + s] == 1, 'beneficiary_id']))} "
+            "of them are in this population and are labelled negative here."
+            if roles and "hub_owner" in roles
+            else "here they are labelled negative."
+        ),
         "",
     ]
     Path(path).write_text("\n".join(lines), encoding="utf-8")
@@ -641,7 +721,9 @@ def run_supervised(
     df_ben, df_disb = load_clean_inputs()
     feats = build_features(df_ben, df_disb)
     assert_no_leakage(FEATURE_COLUMNS)
-    data = attach_labels(feats, pd.read_csv(ground_truth, dtype=str))
+    gt = pd.read_csv(ground_truth, dtype=str)
+    data = attach_labels(feats, gt)
+    roles = answer_key_roles(gt, load_accounts())
     for t in TARGETS:
         print(f"[supervised] {t}: {int(data[LABEL_PREFIX + t].sum())} positives of {len(data)}")
 
@@ -655,7 +737,7 @@ def run_supervised(
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     summary.to_csv(out_dir / METRICS_FILE, index=False)
-    write_report(summary, data, n_splits, n_repeats, seed, out_dir / REPORT_FILE)
+    write_report(summary, data, n_splits, n_repeats, seed, out_dir / REPORT_FILE, roles=roles)
     print(f"[supervised] Wrote {out_dir / METRICS_FILE} and {out_dir / REPORT_FILE}")
     return summary
 

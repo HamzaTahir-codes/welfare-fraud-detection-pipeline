@@ -288,3 +288,47 @@ def test_run_cv_enforces_leakage_guard(monkeypatch):
         monkeypatch.setattr(supervised, "FEATURE_SETS", {"leaky": ["n_payments", leaked]})
         with pytest.raises(ValueError, match="Leakage guard"):
             run_cv(data, PRIMARY_TARGET, n_splits=2, n_repeats=1, seed=42, verbose=False)
+
+
+def test_answer_key_roles_and_breakdown():
+    gt = pd.DataFrame(
+        {
+            "fraud_type": ["shared_account", "shared_account", "duplicate_identity"],
+            "bank_account_number": ["ACC1", "ACC1", None],
+            "beneficiary_id": ["B1", "B2", None],
+            "original_beneficiary_id": [None, None, "B2"],
+            "duplicate_beneficiary_id": [None, None, "B9"],
+        }
+    )
+    accounts = pd.DataFrame({"beneficiary_id": ["B1", "B2", "HUB"], "bank_account_number": ["X", "Y", "ACC1"]})
+    roles = supervised.answer_key_roles(gt, accounts)
+    assert roles["shared_account"] == {"B1", "B2"}
+    assert roles["duplicate_identity"] == {"B2", "B9"}
+    assert roles["hub_owner"] == {"HUB"}
+    assert supervised.role_breakdown(["B1", "B2"], roles) == "2 shared_account (1 of them also duplicate_identity)"
+    assert supervised.role_breakdown(["Z"], roles) == "none of them in the answer key"
+
+
+def test_budget_ceiling():
+    assert supervised.budget_ceiling(n_positives=100, n=1000, budget=0.05) == pytest.approx(0.5)
+    assert supervised.budget_ceiling(n_positives=10, n=1000, budget=0.05) == 1.0
+    # per-fold rounding, as fold_metrics does: 5 folds of 1874 flag round(93.7) = 94 each, ~201 positives
+    assert supervised.budget_ceiling(n_positives=1005, n=9370, budget=0.05, n_splits=5) == pytest.approx(94 / 201)
+
+
+def test_report_flags_saturated_secondary_budgets_and_counts_hub_owners(smoke_run, tmp_path):
+    """Synthetic frame: the rule flags 50/400 = 12.5% with precision 1 on the secondary target,
+    more than both budgets, so the report must call those budget numbers saturated."""
+    data, summary = smoke_run
+    roles = {
+        "multivariate_anomaly": set(data["beneficiary_id"][:10]),
+        "shared_account": set(data["beneficiary_id"][10:50]),
+        "hub_owner": {"B0399", "B0398"},
+    }
+    out = tmp_path / "report.md"
+    write_report(summary, data, n_splits=2, n_repeats=1, seed=42, path=out, roles=roles)
+    text = out.read_text(encoding="utf-8")
+    assert "These budget numbers are saturated" in text
+    assert f"recall ceiling {supervised.budget_ceiling(50, 400, 0.05, n_splits=2):.3f}" in text
+    assert "Of its other 40 flags, all 40 are other planted frauds in the answer key: 40 shared_account" in text
+    assert "2 of them are in this population and are labelled negative here." in text
