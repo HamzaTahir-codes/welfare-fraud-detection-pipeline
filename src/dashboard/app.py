@@ -380,7 +380,7 @@ def page_queue(data: dict, snapshot_id: str):
             "heuristic signals with no answer key get a low, fixed prior instead. Within a kind of evidence only "
             "the strongest signal counts, and the kinds are combined so that independent evidence adds up but can "
             "never exceed 100% (a noisy-OR). The result is "
-            "the evidence_score column. Ties are broken by how many validated kinds of evidence flag the person, "
+            "the Evidence score column. Ties are broken by how many validated kinds of evidence flag the person, "
             "then how many kinds in total, then their highest score.",
         ],
     )
